@@ -27,35 +27,100 @@ Store the API key in environment variables/secrets. Do not hardcode.
 - Poll status until completed/failed
 - Persist users/orders and expose your own API to the frontend
 
-### Out-of-scope (unless you confirm)
-- Prefunded flow (`/placeOrder/prefund`) because it requires Gaian enablement
-- Backend custody/signing (backend signs on behalf of user)
-- Bridging/swap between Sui and other chains (unless required by Gaian)
-
 ---
 
-## Key open dependency: Sui support
-The Gaian doc you provided shows `chain` values like `Solana`, `Ethereum`, `Polygon`, `Arbitrum`, `Base` and includes Solana example code.
+## Chain assumption (Sui)
+For this project we assume Gaian supports `chain = "Sui"`.
 
-Before implementation, confirm with Gaian:
-- Do they support `chain = "Sui"`?
-- What is the required `transactionProof` format on Sui (tx digest)?
-- Which stablecoins/tokens are supported on Sui?
+- Frontend signing is done using a Sui wallet.
+- Backend passes `chain` to Gaian and expects `cryptoTransferInfo` to be valid for Sui.
+- `transactionProof` is the submitted Sui transaction digest/hash.
 
-If Gaian does **not** support Sui directly, you must choose one of these product/tech approaches:
-- **Approach A**: user connects Sui for login/identity, but payment happens on a supported chain (EVM/Solana) using a wallet on that chain.
-- **Approach B**: you implement bridge/swap from Sui stablecoin to a supported chain before calling verify (more complex).
+## DB
+
+### Overview
+The backend must support the flow: frontend submits `username` -> backend loads `qrString` from DB -> backend calls Gaian `placeOrder`.
+
+To make payment processing reliable (polling, retries, history), store orders locally.
+
+### Table/Collection: `payment_targets`
+Mapping of payment receiver config by `username`.
+
+Required fields:
+- `id` (primary key)
+- `username` (unique, indexed)
+- `qrString` (text)
+- `fiatCurrency` (`VND` | `PHP`) (recommended to store here to avoid mismatch)
+- `isActive` (boolean)
+- `createdAt`, `updatedAt`
+
+Optional fields (UI/display only):
+- `displayName` / `merchantName`
+- `country`
+- `notes`
+
+Constraints:
+- `username` must be unique.
+- `qrString` must be non-empty.
+
+### Table/Collection: `orders`
+Local mirror of Gaian order lifecycle.
+
+Required fields:
+- `id` (primary key)
+- `orderId` (unique, Gaian order id)
+- `username` (references `payment_targets.username`)
+- `payerWalletAddress` (Sui wallet address)
+- `status` (`awaiting_crypto_transfer` | `verified` | `processing` | `completed` | `failed`)
+- `fiatAmount`, `fiatCurrency`
+- `cryptoAmount`, `cryptoCurrency`
+- `chain` (expect `Sui`)
+- `toAddress` (from `cryptoTransferInfo`)
+- `token` (token identifier/address from `cryptoTransferInfo`)
+- `transactionProof` (Sui tx digest/hash; nullable until submitted)
+- `bankTransferStatus` (nullable)
+- `bankTransactionReference` (json/nullable)
+- `createdAt`, `updatedAt`
+
+Recommended fields:
+- `clientRequestId` (idempotency key from frontend)
+- `exchangeRate` (snapshot)
+- `expiresAt` (if provided by Gaian)
+- `pollCount`, `lastCheckedAt`
+- `gaianRaw` (json snapshot; or store only a safe subset)
+
+Indexes:
+- unique: `orderId`
+- index: `payerWalletAddress`
+- index: `username`
+- index: `status`
+
+### Idempotency
+To avoid duplicate orders when the user retries:
+- Frontend sends `clientRequestId` (UUID) with `POST /api/payments/orders`.
+- Backend enforces uniqueness on (`payerWalletAddress`, `clientRequestId`).
 
 ---
-
-## Functional requirements
-
-### FR-0: Username-based payment target (no QR scanning on frontend)
 Frontend only submits a `username`. Backend loads the bank `qrString` from DB.
 
 Backend responsibilities:
 - Validate `username` (format + existence + active flag).
 - Lookup `qrString` (and optional display metadata) from DB by `username`.
+## Flow table
+
+| Step | Actor | Input | Action | Output | DB writes |
+|---|---|---|---|---|---|
+| 0 | Admin/Backoffice | `username`, `qrString`, `fiatCurrency` | Create/update `payment_targets` entry (receiver config) | Active payment target | `payment_targets` upsert |
+| 1 | Frontend | User enters `username` + `amount` and is already connected to Sui wallet | Call backend `POST /api/payments/orders` | `orderId`, `cryptoTransferInfo`, amounts, rate, `qrInfo` | Create `orders` with `status=awaiting_crypto_transfer` |
+| 2 | Backend | `username` | Validate + load `qrString` from DB | `qrString` | none |
+| 3 | Backend -> Gaian | `qrString`, `amount`, `fiatCurrency`, `cryptoCurrency`, `chain=Sui`, `fromAddress` | Call `POST /api/v1/placeOrder` with `x-api-key` | Gaian order response | Store snapshot in `orders` |
+| 4 | Frontend | `cryptoTransferInfo` | Build transfer tx on Sui and sign/submit with Sui wallet | `transactionProof` (Sui tx digest/hash) | none |
+| 5 | Frontend -> Backend | `orderId`, `transactionProof` | Call `POST /api/payments/orders/{orderId}/submit-proof` | ack + current status | Update `orders.transactionProof`, set `status=verifying` (optional) |
+| 6 | Backend -> Gaian | `orderId`, `transactionProof` | Call `POST /api/v1/verifyOrder` | `status=verified`, `bankTransferStatus=queued` | Update `orders.status=verified` + `bankTransferStatus` |
+| 7 | Backend (job) -> Gaian | `orderId` | Poll `GET /api/v1/status` until terminal state | `processing` -> `completed` or `failed` | Update `orders.status`, `pollCount`, `lastCheckedAt`, `bankTransactionReference` |
+| 8 | Frontend | `orderId` | Call backend `GET /api/payments/orders/{orderId}` to show progress | Order details | none |
+
+---
 - Use this `qrString` as input for `POST /api/v1/placeOrder`.
 
 Data model requirements:
