@@ -3,6 +3,9 @@ import { ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/s
 import { AuthService } from './auth.service';
 import { ChallengeQueryDto } from './dto/challenge-query.dto';
 import { VerifyDto } from './dto/verify.dto';
+import { ZkLoginChallengeResponseDto } from './dto/zklogin-challenge.dto';
+import { ZkLoginSaltRequestDto, ZkLoginSaltResponseDto } from './dto/zklogin-salt.dto';
+import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -23,6 +26,29 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'JWT issued' })
   verify(@Body() dto: VerifyDto) {
     return this.authService.verifyAndIssueToken(dto);
+  }
+
+  @Get('zklogin/challenge')
+  @ApiOperation({ summary: 'Get challenge (nonce + maxEpoch) for zkLogin' })
+  @ApiResponse({ status: 200, type: ZkLoginChallengeResponseDto })
+  zkLoginChallenge() {
+    return this.authService.issueZkLoginChallenge();
+  }
+
+  @Post('zklogin/salt')
+  @ApiOperation({ summary: 'Get or create zkLogin user salt (Google)' })
+  @ApiBody({ type: ZkLoginSaltRequestDto })
+  @ApiResponse({ status: 201, type: ZkLoginSaltResponseDto })
+  zkLoginSalt(@Body() dto: ZkLoginSaltRequestDto) {
+    return this.authService.getOrCreateZkLoginSalt(dto);
+  }
+
+  @Post('zklogin/verify')
+  @ApiOperation({ summary: 'Verify zkLogin proof + issue JWT' })
+  @ApiBody({ type: ZkLoginVerifyDto })
+  @ApiResponse({ status: 200, description: 'JWT issued' })
+  zkLoginVerify(@Body() dto: ZkLoginVerifyDto) {
+    return this.authService.verifyZkLoginAndIssueToken(dto);
   }
 }
 

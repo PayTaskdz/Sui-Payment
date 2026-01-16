@@ -8,6 +8,11 @@ import { Secp256k1PublicKey } from '@mysten/sui/keypairs/secp256k1';
 import { Secp256r1PublicKey } from '@mysten/sui/keypairs/secp256r1';
 import { parseSerializedSignature } from '@mysten/sui/cryptography';
 import { VerifyDto } from './dto/verify.dto';
+import { ZkLoginSaltRequestDto } from './dto/zklogin-salt.dto';
+import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
+import { randomBase64 } from './zklogin.util';
+import { GoogleOidcService } from './google-oidc.service';
+import { SuiRpcService } from '../sui/sui-rpc.service';
 
 function normalizeSuiAddress(address: string) {
   const a = address.trim().toLowerCase();
@@ -23,6 +28,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly googleOidc: GoogleOidcService,
+    private readonly suiRpc: SuiRpcService,
   ) {
     this.domain = this.config.get<string>('AUTH_DOMAIN') ?? 'paypath.app';
     this.challengeTtlSeconds = Number(this.config.get<string>('AUTH_CHALLENGE_TTL_SECONDS') ?? '300');
@@ -155,6 +162,99 @@ export class AuthService {
     });
 
     const token = await this.jwt.signAsync({ sub: address, address });
+
+    return {
+      accessToken: token,
+      tokenType: 'Bearer',
+    };
+  }
+
+  async issueZkLoginChallenge() {
+    const nonce = randomBytes(16).toString('hex');
+    const expiresAt = new Date(Date.now() + this.challengeTtlSeconds * 1000);
+
+    await this.prisma.authNonce.create({
+      data: {
+        address: 'zklogin:google',
+        nonce,
+        expiresAt,
+      },
+    });
+
+    const epoch = await this.suiRpc.getCurrentEpoch();
+    const offset = BigInt(this.config.get<string>('ZKLOGIN_MAX_EPOCH_OFFSET') ?? '2');
+    const maxEpoch = (BigInt(epoch) + offset).toString();
+
+    return {
+      nonce,
+      maxEpoch,
+      domain: this.domain,
+      expirationTime: expiresAt.toISOString(),
+    };
+  }
+
+  async getOrCreateZkLoginSalt(dto: ZkLoginSaltRequestDto) {
+    const payload = await this.googleOidc.verifyIdToken(dto.idToken);
+
+    const provider = 'google';
+    const providerSub = payload.sub as string;
+
+    const existing = await this.prisma.zkLoginSalt.findUnique({
+      where: {
+        provider_providerSub: { provider, providerSub },
+      },
+    });
+
+    if (existing) {
+      return { salt: existing.userSaltB64 };
+    }
+
+    const created = await this.prisma.zkLoginSalt.create({
+      data: {
+        provider,
+        providerSub,
+        userSaltB64: randomBase64(16),
+      },
+    });
+
+    return { salt: created.userSaltB64 };
+  }
+
+  async verifyZkLoginAndIssueToken(dto: ZkLoginVerifyDto) {
+    const nonceRow = await this.prisma.authNonce.findFirst({
+      where: {
+        address: 'zklogin:google',
+        nonce: dto.nonce,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!nonceRow) throw new BadRequestException('NONCE_NOT_FOUND');
+    if (nonceRow.usedAt) throw new BadRequestException('NONCE_ALREADY_USED');
+    if (nonceRow.expiresAt.getTime() < Date.now()) throw new BadRequestException('NONCE_EXPIRED');
+
+    const payload = await this.googleOidc.verifyIdToken(dto.idToken, dto.nonce);
+
+    const saltRow = await this.prisma.zkLoginSalt.findUnique({
+      where: {
+        provider_providerSub: { provider: 'google', providerSub: payload.sub as string },
+      },
+    });
+
+    if (!saltRow) {
+      throw new BadRequestException('ZKLOGIN_SALT_NOT_FOUND');
+    }
+
+    if (!dto.proof || typeof dto.proof !== 'object') {
+      throw new BadRequestException('ZKLOGIN_PROOF_REQUIRED');
+    }
+
+    await this.prisma.authNonce.update({
+      where: { id: nonceRow.id },
+      data: { usedAt: new Date() },
+    });
+
+    const token = await this.jwt.signAsync({ sub: payload.sub, provider: 'google', authType: 'zklogin' });
 
     return {
       accessToken: token,
