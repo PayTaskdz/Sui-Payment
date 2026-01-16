@@ -1,31 +1,27 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { DatabaseModule } from './database/database.module';
-import { AppConfigModule } from './config/config.module';
-import { GaianModule } from './integrations/gaian/gaian.module';
+import { HttpModule } from '@nestjs/axios';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './prisma/prisma.module';
+import { SuiModule } from './sui/sui.module';
+import { GaianModule } from './gaian/gaian.module';
+import { PaymentsModule } from './payments/payments.module';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { OnchainWalletsModule } from './wallets/onchain/onchain-wallets.module';
-import { OffchainWalletsModule } from './wallets/offchain/offchain-wallets.module';
-import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
-import { KycModule } from './kyc/kyc.module';
-import { ContactsModule } from './contacts/contacts.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    DatabaseModule,
-    AppConfigModule,
+    HttpModule,
+    ScheduleModule.forRoot(),
+    PrismaModule,
+    SuiModule,
     GaianModule,
+    PaymentsModule,
     AuthModule,
-    UsersModule,
-    OnchainWalletsModule,
-    OffchainWalletsModule,
-    PaymentMethodsModule,
-    KycModule,
-    ContactsModule,
   ],
 })
 export class AppModule {}

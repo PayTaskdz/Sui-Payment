@@ -17,7 +17,8 @@ datasource db {
 enum OrderStatus {
   AWAITING_USER_PAYMENT
   USER_PAYMENT_VERIFIED
-  GAIAN_PROCESSING
+  CONFIRMING_GAIAN_PAYMENT
+  CONFIRMED_GAIAN_PAYMENT
   COMPLETED
   FAILED
 }
@@ -189,31 +190,31 @@ model PaymentTarget {
 // Purpose: Track payment orders via Gaian
 // ============================================
 model Order {
-  id                     String             @id @default(cuid())
-  gaianOrderId            String?            @unique
-  username                String
-  paymentTargetId         String?
-  payerWalletAddress      String
-  partnerWalletAddress    String
-  cryptoCurrency          String
-  coinType                String
-  expectedCryptoAmountRaw String
-  userPaymentTxDigest     String?
-  userPaymentVerifiedAt   DateTime?
+  id                      String             @id @default(cuid())
+  gaianOrderId             String?            @unique
+  username                 String
+  paymentTargetId          String?
+  payerWalletAddress       String
+  partnerWalletAddress     String
+  cryptoCurrency           String
+  coinType                 String
+  expectedCryptoAmountRaw  String
+  userPaymentTxDigest      String?
+  userPaymentVerifiedAt    DateTime?
 
-  fiatAmount              Decimal            @db.Decimal(18, 2)
-  fiatCurrency            String
+  fiatAmount               Decimal            @db.Decimal(18, 2)
+  fiatCurrency             String
 
-  status                  OrderStatus        @default(AWAITING_USER_PAYMENT)
-  bankTransferStatus      BankTransferStatus?
+  status                   OrderStatus        @default(AWAITING_USER_PAYMENT)
+  bankTransferStatus       BankTransferStatus?
   bankTransactionReference Json?
 
-  exchangeRate            Decimal?           @db.Decimal(18, 8)
-  gaianRaw                Json?
+  exchangeRate             Decimal?           @db.Decimal(18, 8)
+  gaianRaw                 Json?
 
-  clientRequestId         String?
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+  clientRequestId          String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
 
   paymentTarget PaymentTarget? @relation(fields: [paymentTargetId], references: [id])
 
@@ -222,6 +223,21 @@ model Order {
   @@index([status])
   @@unique([payerWalletAddress, clientRequestId])
   @@map("orders")
+}
+
+// ============================================
+// AUDIT AUTH TABLE
+// ============================================
+model AuthNonce {
+  id        String   @id @default(cuid())
+  address   String
+  nonce     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([address])
+  @@unique([address, nonce])
 }
 
 // ============================================
