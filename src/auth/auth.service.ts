@@ -3,7 +3,10 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { randomBytes } from 'crypto';
-import { verifyPersonalMessage } from '@mysten/sui.js/verify';
+import { Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
+import { Secp256k1PublicKey } from '@mysten/sui/keypairs/secp256k1';
+import { Secp256r1PublicKey } from '@mysten/sui/keypairs/secp256r1';
+import { parseSerializedSignature } from '@mysten/sui/cryptography';
 import { VerifyDto } from './dto/verify.dto';
 
 function normalizeSuiAddress(address: string) {
@@ -106,9 +109,44 @@ export class AuthService {
     }
 
     try {
-      await verifyPersonalMessage(new TextEncoder().encode(dto.message), dto.signature);
-    } catch {
-      throw new BadRequestException('INVALID_SIGNATURE');
+      const bytes = new TextEncoder().encode(dto.message);
+      const parsed = parseSerializedSignature(dto.signature);
+
+      if (parsed.signatureScheme === 'MultiSig') {
+        throw new BadRequestException('UNSUPPORTED_SIGNATURE_SCHEME:MultiSig');
+      }
+      if (parsed.signatureScheme === 'ZkLogin') {
+        throw new BadRequestException('UNSUPPORTED_SIGNATURE_SCHEME:ZkLogin');
+      }
+      if (parsed.signatureScheme === 'Passkey') {
+        throw new BadRequestException('UNSUPPORTED_SIGNATURE_SCHEME:Passkey');
+      }
+
+      const publicKeyBytes = parsed.publicKey;
+      const signature = parsed.signature;
+
+      const publicKey =
+        parsed.signatureScheme === 'ED25519'
+          ? new Ed25519PublicKey(publicKeyBytes)
+          : parsed.signatureScheme === 'Secp256k1'
+            ? new Secp256k1PublicKey(publicKeyBytes)
+            : new Secp256r1PublicKey(publicKeyBytes);
+
+      const ok = await publicKey.verifyPersonalMessage(bytes, signature);
+      if (!ok) {
+        throw new BadRequestException('INVALID_SIGNATURE');
+      }
+
+      const signerAddress = normalizeSuiAddress(publicKey.toSuiAddress());
+      if (signerAddress !== address) {
+        throw new BadRequestException('SIGNER_MISMATCH');
+      }
+
+      void parsed.signatureScheme;
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      const msg = e instanceof Error ? e.message : 'UNKNOWN';
+      throw new BadRequestException(`INVALID_SIGNATURE:${msg}`);
     }
 
     await this.prisma.authNonce.update({
