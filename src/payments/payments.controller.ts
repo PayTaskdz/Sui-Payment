@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserOrdersQueryDto } from './dto/user-orders-query.dto';
 import { QuoteDto } from './dto/quote.dto';
 import { PaymentsService } from './payments.service';
@@ -8,6 +9,8 @@ import { ConfirmUserPaymentDto } from './dto/confirm-user-payment.dto';
 
 @ApiTags('Payments')
 @Controller('payments')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 

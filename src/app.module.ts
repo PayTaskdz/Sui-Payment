@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { SuiModule } from './sui/sui.module';
 import { GaianModule } from './gaian/gaian.module';
 import { PaymentsModule } from './payments/payments.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { PaymentsModule } from './payments/payments.module';
     SuiModule,
     GaianModule,
     PaymentsModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
