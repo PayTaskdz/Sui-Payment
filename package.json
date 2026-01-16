@@ -13,6 +13,7 @@
     "prisma:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@mysten/sui": "^1.45.2",
     "@mysten/sui.js": "^0.54.1",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.1.12",
