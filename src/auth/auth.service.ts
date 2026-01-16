@@ -8,6 +8,7 @@ import { Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { Secp256k1PublicKey } from '@mysten/sui/keypairs/secp256k1';
 import { Secp256r1PublicKey } from '@mysten/sui/keypairs/secp256r1';
 import { parseSerializedSignature } from '@mysten/sui/cryptography';
+import { jwtToAddress } from '@mysten/sui/zklogin';
 import { VerifyDto } from './dto/verify.dto';
 import { ZkLoginSaltRequestDto } from './dto/zklogin-salt.dto';
 import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
@@ -211,7 +212,8 @@ export class AuthService {
     });
 
     if (existing) {
-      return { salt: existing.userSaltB64 };
+      const address = normalizeSuiAddress(jwtToAddress(dto.idToken, existing.userSaltB64));
+      return { salt: existing.userSaltB64, address };
     }
 
     const created = await this.prisma.zkLoginSalt.create({
@@ -222,7 +224,8 @@ export class AuthService {
       },
     });
 
-    return { salt: created.userSaltB64 };
+    const address = normalizeSuiAddress(jwtToAddress(dto.idToken, created.userSaltB64));
+    return { salt: created.userSaltB64, address };
   }
 
   async verifyZkLoginAndIssueToken(dto: ZkLoginVerifyDto) {
