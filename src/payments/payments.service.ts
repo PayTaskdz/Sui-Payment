@@ -6,6 +6,9 @@ import { ConfirmUserPaymentDto } from './dto/confirm-user-payment.dto';
 import { GaianClient } from '../gaian/gaian.client';
 import { SuiRpcService } from '../sui/sui-rpc.service';
 import { decimalToRawAmount, isRawIntString } from '../common/money';
+import { Order, PaymentTarget } from '@prisma/client';
+import { OrderResponseDto } from './dto/order.response.dto';
+import { CreateOrderResponseDto } from './dto/create-order.response.dto';
 
 @Injectable()
 export class PaymentsService {
@@ -16,7 +19,39 @@ export class PaymentsService {
     private readonly suiRpc: SuiRpcService,
   ) {}
 
-  async createOrder(dto: CreateOrderDto) {
+  private toOrderResponse(order: any): OrderResponseDto {
+    return {
+      id: order.id,
+      username: order.username,
+      payerWalletAddress: order.payerWalletAddress,
+      cryptoCurrency: order.cryptoCurrency,
+      coinType: order.coinType,
+      expectedCryptoAmountRaw: order.expectedCryptoAmountRaw,
+      userPaymentTxDigest: order.userPaymentTxDigest,
+      userPaymentVerifiedAt: order.userPaymentVerifiedAt,
+      fiatAmount: String(order.fiatAmount),
+      fiatCurrency: order.fiatCurrency,
+      status: order.status,
+      bankTransferStatus: order.bankTransferStatus,
+      bankTransactionReference: order.bankTransactionReference,
+      exchangeRate: order.exchangeRate ? String(order.exchangeRate) : null,
+      gaianOrderId: order.gaianOrderId ?? null,
+      paymentTarget: order.paymentTarget
+        ? {
+            id: order.paymentTarget.id,
+            username: order.paymentTarget.username,
+            fiatCurrency: order.paymentTarget.fiatCurrency,
+            displayName: order.paymentTarget.displayName,
+            country: order.paymentTarget.country,
+          }
+        : undefined,
+      clientRequestId: order.clientRequestId ?? null,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    };
+  }
+
+  async createOrder(dto: CreateOrderDto): Promise<CreateOrderResponseDto> {
     const target = await this.prisma.paymentTarget.findUnique({
       where: { username: dto.username },
     });
@@ -86,12 +121,13 @@ export class PaymentsService {
       payout: {
         username: target.username,
         fiatCurrency: target.fiatCurrency,
-        qrString: target.qrString,
       },
     };
   }
 
-  async confirmUserPayment(orderId: string, dto: ConfirmUserPaymentDto) {
+  
+
+  async confirmUserPayment(orderId: string, dto: ConfirmUserPaymentDto): Promise<OrderResponseDto> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { paymentTarget: true },
@@ -101,16 +137,11 @@ export class PaymentsService {
     }
 
     if (order.status === 'COMPLETED' || order.status === 'FAILED') {
-      return order;
+      return this.toOrderResponse(order);
     }
 
     if (!order.paymentTarget) {
       throw new BadRequestException('PAYMENT_TARGET_NOT_FOUND');
-    }
-
-    // If Gaian call was successful, do not call again.
-    if ((order.status as string) === 'CONFIRMED_GAIAN_PAYMENT') {
-      return this.getOrder(orderId);
     }
 
     // Step 1: Verify on-chain payment if not already done.
@@ -127,15 +158,16 @@ export class PaymentsService {
       }
 
       // Update status and return. The next call will trigger Gaian.
-      await this.prisma.order.update({
+      const updated = await this.prisma.order.update({
         where: { id: order.id },
         data: {
           status: 'USER_PAYMENT_VERIFIED',
           userPaymentTxDigest: dto.userPaymentTxDigest,
           userPaymentVerifiedAt: new Date(),
         },
+        include: { paymentTarget: true },
       });
-      return this.getOrder(orderId);
+      return this.toOrderResponse(updated);
     }
 
     // Step 2: Call Gaian if payment is verified or if previous Gaian call failed.
@@ -155,25 +187,37 @@ export class PaymentsService {
           throw new BadRequestException('GAIAN_ORDER_ID_MISSING');
         }
 
-        await this.prisma.order.update({
+        const updated = await this.prisma.order.update({
           where: { id: order.id },
           data: {
             gaianOrderId,
             gaianRaw: gaianResp,
-            status: 'CONFIRMED_GAIAN_PAYMENT',
+            status: 'CONFIRMED_GAIAN_PAYMENT' as any,
           },
+          include: { paymentTarget: true },
         });
+
+        return this.toOrderResponse(updated);
       } catch (err) {
         await this.prisma.order.update({
           where: { id: order.id },
-          data: { status: 'CONFIRMING_GAIAN_PAYMENT' },
+          data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
         });
         // re-throw the original error to client
         throw err;
       }
     }
 
-    return this.getOrder(orderId);
+    const fresh = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { paymentTarget: true },
+    });
+
+    if (!fresh) {
+      throw new NotFoundException('ORDER_NOT_FOUND');
+    }
+
+    return this.toOrderResponse(fresh);
   }
 
   async getUserOrdersByWallet(
@@ -325,10 +369,6 @@ export class PaymentsService {
     } else if (normalized === 'failed') {
       next.status = 'FAILED';
       next.bankTransferStatus = 'FAILED';
-    } else if (order.status === 'CONFIRMED_GAIAN_PAYMENT' || order.status === 'CONFIRMING_GAIAN_PAYMENT') {
-      // If we're in a confirmed state but Gaian is still processing, keep the confirmed status
-      next.status = 'CONFIRMED_GAIAN_PAYMENT';
-      next.bankTransferStatus = 'PROCESSING';
     } else {
       next.status = 'CONFIRMED_GAIAN_PAYMENT';
       next.bankTransferStatus = 'PROCESSING';
