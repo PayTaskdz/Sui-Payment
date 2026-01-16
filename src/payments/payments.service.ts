@@ -128,96 +128,101 @@ export class PaymentsService {
   
 
   async confirmUserPayment(orderId: string, dto: ConfirmUserPaymentDto): Promise<OrderResponseDto> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { paymentTarget: true },
-    });
-    if (!order) {
-      throw new NotFoundException('ORDER_NOT_FOUND');
-    }
-
-    if (order.status === 'COMPLETED' || order.status === 'FAILED') {
-      return this.toOrderResponse(order);
-    }
-
-    if (!order.paymentTarget) {
-      throw new BadRequestException('PAYMENT_TARGET_NOT_FOUND');
-    }
-
-    // Step 1: Verify on-chain payment if not already done.
-    if (order.status === 'AWAITING_USER_PAYMENT') {
-      const verify = await this.suiRpc.verifyTransfer(
-        dto.userPaymentTxDigest,
-        order.partnerWalletAddress,
-        order.coinType,
-        order.expectedCryptoAmountRaw,
-      );
-
-      if (!verify.success) {
-        throw new BadRequestException(verify.message ?? 'USER_PAYMENT_NOT_VERIFIED');
-      }
-
-      // Update status and return. The next call will trigger Gaian.
-      const updated = await this.prisma.order.update({
-        where: { id: order.id },
-        data: {
-          status: 'USER_PAYMENT_VERIFIED',
-          userPaymentTxDigest: dto.userPaymentTxDigest,
-          userPaymentVerifiedAt: new Date(),
-        },
+    // Start a transaction to handle both verification and Gaian call atomically
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Get the order with pessimistic locking to prevent concurrent updates
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
         include: { paymentTarget: true },
       });
-      return this.toOrderResponse(updated);
-    }
 
-    // Step 2: Call Gaian if payment is verified or if previous Gaian call failed.
-    if (order.status === 'USER_PAYMENT_VERIFIED' || (order.status as string) === 'CONFIRMING_GAIAN_PAYMENT') {
-      try {
-        const gaianResp = await this.gaian.placeOrderPrefund({
-          qrString: order.paymentTarget.qrString,
-          amount: Number(order.fiatAmount),
-          fiatCurrency: order.fiatCurrency,
-          cryptoCurrency: order.cryptoCurrency,
-          fromAddress: order.payerWalletAddress,
-          transactionReference: undefined,
-        });
+      if (!order) {
+        throw new NotFoundException('ORDER_NOT_FOUND');
+      }
 
-        const gaianOrderId = gaianResp?.orderId;
-        if (!gaianOrderId) {
-          throw new BadRequestException('GAIAN_ORDER_ID_MISSING');
+      // 2. If already completed or failed, just return current state
+      if (order.status === 'COMPLETED' || order.status === 'FAILED') {
+        return this.toOrderResponse(order);
+      }
+
+      if (!order.paymentTarget) {
+        throw new BadRequestException('PAYMENT_TARGET_NOT_FOUND');
+      }
+
+      let updatedOrder = order;
+
+      // 3. Handle on-chain verification if needed
+      if (order.status === 'AWAITING_USER_PAYMENT') {
+        const verify = await this.suiRpc.verifyTransfer(
+          dto.userPaymentTxDigest,
+          order.partnerWalletAddress,
+          order.coinType,
+          order.expectedCryptoAmountRaw,
+        );
+
+        if (!verify.success) {
+          throw new BadRequestException(verify.message ?? 'USER_PAYMENT_NOT_VERIFIED');
         }
 
-        const updated = await this.prisma.order.update({
+        // Update status to mark as verified
+        updatedOrder = await tx.order.update({
           where: { id: order.id },
           data: {
-            gaianOrderId,
-            gaianRaw: gaianResp,
-            status: 'CONFIRMED_GAIAN_PAYMENT' as any,
+            status: 'USER_PAYMENT_VERIFIED',
+            userPaymentTxDigest: dto.userPaymentTxDigest,
+            userPaymentVerifiedAt: new Date(),
           },
           include: { paymentTarget: true },
         });
-
-        return this.toOrderResponse(updated);
-      } catch (err) {
-        await this.prisma.order.update({
-          where: { id: order.id },
-          data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
-        });
-        // re-throw the original error to client
-        throw err;
       }
-    }
 
-    const fresh = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { paymentTarget: true },
+      // 4. If we're in a state to call Gaian, do it now
+      if ((updatedOrder.status as any) === 'USER_PAYMENT_VERIFIED' || (updatedOrder.status as any) === 'CONFIRMING_GAIAN_PAYMENT') {
+        try {
+          // Mark as processing to prevent duplicate calls
+          await tx.order.update({
+            where: { id: orderId },
+            data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
+          });
+
+          // Call Gaian
+          const gaianResp = await this.gaian.placeOrderPrefund({
+            qrString: updatedOrder.paymentTarget!.qrString,
+            amount: Number(updatedOrder.fiatAmount),
+            fiatCurrency: updatedOrder.fiatCurrency,
+            cryptoCurrency: updatedOrder.cryptoCurrency,
+            fromAddress: updatedOrder.payerWalletAddress,
+            transactionReference: updatedOrder.userPaymentTxDigest || undefined,
+          });
+
+          const gaianOrderId = gaianResp?.orderId;
+          if (!gaianOrderId) {
+            throw new BadRequestException('GAIAN_ORDER_ID_MISSING');
+          }
+
+          // Update with Gaian response
+          updatedOrder = await tx.order.update({
+            where: { id: orderId },
+            data: {
+              gaianOrderId,
+              gaianRaw: gaianResp,
+              status: 'CONFIRMED_GAIAN_PAYMENT' as any,
+            },
+            include: { paymentTarget: true },
+          });
+        } catch (err) {
+          // On error, update status but don't throw yet - we'll rethrow after transaction
+          await tx.order.update({
+            where: { id: orderId },
+            data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
+          });
+          throw err; // Re-throw to trigger transaction rollback
+        }
+      }
+
+      // 5. If we get here, either we didn't need to do anything or everything succeeded
+      return this.toOrderResponse(updatedOrder);
     });
-
-    if (!fresh) {
-      throw new NotFoundException('ORDER_NOT_FOUND');
-    }
-
-    return this.toOrderResponse(fresh);
   }
 
   async getUserOrdersByWallet(
