@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma, Order, PaymentTarget } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ConfirmUserPaymentDto } from './dto/confirm-user-payment.dto';
 import { GaianClient } from '../gaian/gaian.client';
 import { SuiRpcService } from '../sui/sui-rpc.service';
 import { decimalToRawAmount, isRawIntString } from '../common/money';
-import { Order, PaymentTarget } from '@prisma/client';
 import { OrderResponseDto } from './dto/order.response.dto';
 import { CreateOrderResponseDto } from './dto/create-order.response.dto';
 
@@ -129,7 +129,7 @@ export class PaymentsService {
 
   async confirmUserPayment(orderId: string, dto: ConfirmUserPaymentDto): Promise<OrderResponseDto> {
     // Start a transaction to handle both verification and Gaian call atomically
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Get the order with pessimistic locking to prevent concurrent updates
       const order = await tx.order.findUnique({
         where: { id: orderId },
