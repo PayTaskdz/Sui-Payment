@@ -308,26 +308,31 @@ export class PaymentsService {
       return order;
     }
 
-    const status = await this.gaian.getStatus(order.gaianOrderId);
+    const gaianStatus = await this.gaian.getStatus(order.gaianOrderId);
+    const currentStatus: string | undefined = gaianStatus?.status;
 
-    const currentStatus: string | undefined = status?.status;
+    // Always update gaianRaw with the latest status
+    const next: any = {
+      gaianRaw: gaianStatus,
+      bankTransactionReference: gaianStatus?.bankTransactionReference ?? undefined
+    };
 
-    let next: any = {};
-
+    // Update status based on Gaian status
     const normalized = currentStatus?.toLowerCase();
-
     if (normalized === 'completed') {
       next.status = 'COMPLETED';
       next.bankTransferStatus = 'COMPLETED';
     } else if (normalized === 'failed') {
       next.status = 'FAILED';
       next.bankTransferStatus = 'FAILED';
+    } else if (order.status === 'CONFIRMED_GAIAN_PAYMENT' || order.status === 'CONFIRMING_GAIAN_PAYMENT') {
+      // If we're in a confirmed state but Gaian is still processing, keep the confirmed status
+      next.status = 'CONFIRMED_GAIAN_PAYMENT';
+      next.bankTransferStatus = 'PROCESSING';
     } else {
-      next.status = 'GAIAN_PROCESSING';
+      next.status = 'CONFIRMED_GAIAN_PAYMENT';
       next.bankTransferStatus = 'PROCESSING';
     }
-
-    next.bankTransactionReference = status?.bankTransactionReference ?? undefined;
 
     await this.prisma.order.update({
       where: { id: order.id },

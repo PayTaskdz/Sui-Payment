@@ -6,20 +6,31 @@ import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class GaianClient {
-  private readonly baseUrl: string;
+  private readonly paymentBaseUrl: string;
+  private readonly userBaseUrl: string;
   private readonly apiKey: string;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
   ) {
-    this.baseUrl = this.configService.get<string>('GAIAN_BASE_URL') ?? '';
+    this.paymentBaseUrl = this.configService.get<string>('GAIAN_PAYMENT_BASE_URL') ?? '';
+    this.userBaseUrl = this.configService.get<string>('GAIAN_USER_BASE_URL') ?? '';
     this.apiKey = this.configService.get<string>('GAIAN_API_KEY') ?? '';
   }
 
-  private ensureConfigured() {
-    if (!this.baseUrl) {
-      throw new BadRequestException('GAIAN_BASE_URL_NOT_CONFIGURED');
+  private ensurePaymentConfigured() {
+    if (!this.paymentBaseUrl) {
+      throw new BadRequestException('GAIAN_PAYMENT_BASE_URL_NOT_CONFIGURED');
+    }
+    if (!this.apiKey) {
+      throw new BadRequestException('GAIAN_API_KEY_NOT_CONFIGURED');
+    }
+  }
+
+  private ensureUserConfigured() {
+    if (!this.userBaseUrl) {
+      throw new BadRequestException('GAIAN_USER_BASE_URL_NOT_CONFIGURED');
     }
     if (!this.apiKey) {
       throw new BadRequestException('GAIAN_API_KEY_NOT_CONFIGURED');
@@ -49,8 +60,8 @@ export class GaianClient {
     chain: string;
     token: string;
   }) {
-    this.ensureConfigured();
-    const url = `${this.baseUrl}/api/v1/calculateExchange`;
+    this.ensurePaymentConfigured();
+    const url = `${this.paymentBaseUrl}/api/v1/calculateExchange`;
 
     try {
       const response = await firstValueFrom(
@@ -77,8 +88,8 @@ export class GaianClient {
     fromAddress: string;
     transactionReference?: string;
   }) {
-    this.ensureConfigured();
-    const url = `${this.baseUrl}/api/v1/placeOrder/prefund`;
+    this.ensurePaymentConfigured();
+    const url = `${this.paymentBaseUrl}/api/v1/placeOrder/prefund`;
 
     try {
       const response = await firstValueFrom(
@@ -98,8 +109,8 @@ export class GaianClient {
   }
 
   async getStatus(orderId: string) {
-    this.ensureConfigured();
-    const url = `${this.baseUrl}/api/v1/status`;
+    this.ensurePaymentConfigured();
+    const url = `${this.paymentBaseUrl}/api/v1/status`;
 
     try {
       const response = await firstValueFrom(
@@ -125,8 +136,8 @@ export class GaianClient {
     walletAddress: string,
     query?: { page?: number; limit?: number; status?: string },
   ) {
-    this.ensureConfigured();
-    const url = `${this.baseUrl}/api/v1/users/wallet/${walletAddress}/orders`;
+    this.ensureUserConfigured();
+    const url = `${this.userBaseUrl}/api/v1/users/wallet/${walletAddress}/orders`;
 
     try {
       const response = await firstValueFrom(
