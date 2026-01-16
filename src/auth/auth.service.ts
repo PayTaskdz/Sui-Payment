@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ZkLoginRegisterDto } from './dto/zklogin-register.dto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -170,27 +171,31 @@ export class AuthService {
   }
 
   async issueZkLoginChallenge() {
-    const nonce = randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + this.challengeTtlSeconds * 1000);
-
-    await this.prisma.authNonce.create({
-      data: {
-        address: 'zklogin:google',
-        nonce,
-        expiresAt,
-      },
-    });
 
     const epoch = await this.suiRpc.getCurrentEpoch();
     const offset = BigInt(this.config.get<string>('ZKLOGIN_MAX_EPOCH_OFFSET') ?? '2');
     const maxEpoch = (BigInt(epoch) + offset).toString();
 
     return {
-      nonce,
       maxEpoch,
       domain: this.domain,
       expirationTime: expiresAt.toISOString(),
     };
+  }
+
+  async registerZkLoginNonce(dto: ZkLoginRegisterDto) {
+    const expiresAt = new Date(Date.now() + this.challengeTtlSeconds * 1000);
+
+    await this.prisma.authNonce.create({
+      data: {
+        address: 'zklogin:google',
+        nonce: dto.nonce,
+        expiresAt,
+      },
+    });
+
+    return { expirationTime: expiresAt.toISOString() };
   }
 
   async getOrCreateZkLoginSalt(dto: ZkLoginSaltRequestDto) {
