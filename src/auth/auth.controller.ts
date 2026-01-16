@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { ChallengeQueryDto } from './dto/challenge-query.dto';
 import { VerifyDto } from './dto/verify.dto';
 import { ZkLoginChallengeResponseDto } from './dto/zklogin-challenge.dto';
+import { ZkLoginRegisterDto } from './dto/zklogin-register.dto';
 import { ZkLoginSaltRequestDto, ZkLoginSaltResponseDto } from './dto/zklogin-salt.dto';
 import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
 
@@ -41,6 +42,14 @@ export class AuthController {
   @ApiResponse({ status: 201, type: ZkLoginSaltResponseDto })
   zkLoginSalt(@Body() dto: ZkLoginSaltRequestDto) {
     return this.authService.getOrCreateZkLoginSalt(dto);
+  }
+
+  @Post('zklogin/register')
+  @ApiOperation({ summary: 'Register computed nonce for zkLogin' })
+  @ApiBody({ type: ZkLoginRegisterDto })
+  @ApiResponse({ status: 201, description: 'Nonce registered' })
+  zkLoginRegister(@Body() dto: ZkLoginRegisterDto) {
+    return this.authService.registerZkLoginNonce(dto);
   }
 
   @Post('zklogin/verify')

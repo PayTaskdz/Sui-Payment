@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ZkLoginRegisterDto } from './dto/zklogin-register.dto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +8,7 @@ import { Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { Secp256k1PublicKey } from '@mysten/sui/keypairs/secp256k1';
 import { Secp256r1PublicKey } from '@mysten/sui/keypairs/secp256r1';
 import { parseSerializedSignature } from '@mysten/sui/cryptography';
+import { jwtToAddress } from '@mysten/sui/zklogin';
 import { VerifyDto } from './dto/verify.dto';
 import { ZkLoginSaltRequestDto } from './dto/zklogin-salt.dto';
 import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
@@ -170,27 +172,31 @@ export class AuthService {
   }
 
   async issueZkLoginChallenge() {
-    const nonce = randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + this.challengeTtlSeconds * 1000);
-
-    await this.prisma.authNonce.create({
-      data: {
-        address: 'zklogin:google',
-        nonce,
-        expiresAt,
-      },
-    });
 
     const epoch = await this.suiRpc.getCurrentEpoch();
     const offset = BigInt(this.config.get<string>('ZKLOGIN_MAX_EPOCH_OFFSET') ?? '2');
     const maxEpoch = (BigInt(epoch) + offset).toString();
 
     return {
-      nonce,
       maxEpoch,
       domain: this.domain,
       expirationTime: expiresAt.toISOString(),
     };
+  }
+
+  async registerZkLoginNonce(dto: ZkLoginRegisterDto) {
+    const expiresAt = new Date(Date.now() + this.challengeTtlSeconds * 1000);
+
+    await this.prisma.authNonce.create({
+      data: {
+        address: 'zklogin:google',
+        nonce: dto.nonce,
+        expiresAt,
+      },
+    });
+
+    return { expirationTime: expiresAt.toISOString() };
   }
 
   async getOrCreateZkLoginSalt(dto: ZkLoginSaltRequestDto) {
@@ -206,7 +212,9 @@ export class AuthService {
     });
 
     if (existing) {
-      return { salt: existing.userSaltB64 };
+      const saltBigInt = BigInt(`0x${Buffer.from(existing.userSaltB64, 'base64').toString('hex')}`);
+      const address = normalizeSuiAddress(jwtToAddress(dto.idToken, saltBigInt));
+      return { salt: existing.userSaltB64, address };
     }
 
     const created = await this.prisma.zkLoginSalt.create({
@@ -217,7 +225,8 @@ export class AuthService {
       },
     });
 
-    return { salt: created.userSaltB64 };
+    const address = normalizeSuiAddress(jwtToAddress(dto.idToken, BigInt(`0x${Buffer.from(created.userSaltB64, 'base64').toString('hex')}`)));
+    return { salt: created.userSaltB64, address };
   }
 
   async verifyZkLoginAndIssueToken(dto: ZkLoginVerifyDto) {
