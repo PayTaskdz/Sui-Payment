@@ -9,6 +9,7 @@ import { SuiModule } from './sui/sui.module';
 import { GaianModule } from './gaian/gaian.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AuthModule } from './auth/auth.module';
+import { ProverModule } from './prover/prover.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AuthModule } from './auth/auth.module';
     GaianModule,
     PaymentsModule,
     AuthModule,
+    ProverModule,
   ],
 })
 export class AppModule {}

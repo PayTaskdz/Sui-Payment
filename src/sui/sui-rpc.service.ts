@@ -3,11 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
-type SuiRpcResponse<T> = {
-  jsonrpc: string;
-  result: T;
-  id: number;
-};
+
 
 type SuiBalanceChange = {
   owner: unknown;
@@ -40,7 +36,7 @@ export class SuiRpcService {
     }
 
     const response = await firstValueFrom(
-      this.httpService.post<SuiRpcResponse<T>>(this.rpcUrl, {
+      this.httpService.post<any>(this.rpcUrl, {
         jsonrpc: '2.0',
         id: 1,
         method,
@@ -48,9 +44,46 @@ export class SuiRpcService {
       }),
     );
 
-    return response.data.result;
+    const data: any = response.data as any;
+    if (data?.error) {
+      const msg = typeof data.error?.message === 'string' ? data.error.message : 'SUI_RPC_ERROR';
+      throw new Error(msg);
+    }
+
+    return (data?.result ?? null) as T;
   }
 
+  async getCurrentEpoch(): Promise<string> {
+    const tryParseEpoch = (state: any) => {
+      const epoch = state?.epoch;
+      if (typeof epoch === 'string' && epoch.length > 0) return epoch;
+      if (typeof epoch === 'number' && Number.isFinite(epoch)) return String(epoch);
+      return null;
+    };
+
+    // Sui JSON-RPC uses suix_* for extended endpoints.
+    // Testnet fullnode commonly supports `suix_getLatestSuiSystemState`.
+    try {
+      const state = await this.rpc<any>('suix_getLatestSuiSystemState', []);
+      const epoch = tryParseEpoch(state);
+      if (epoch) return epoch;
+    } catch {
+      // ignore and try fallback
+    }
+
+    // Fallbacks for compatibility with some nodes/proxies
+    for (const method of ['suix_getSuiSystemState', 'sui_getLatestSuiSystemState', 'sui_getSuiSystemState'] as const) {
+      try {
+        const state = await this.rpc<any>(method, []);
+        const epoch = tryParseEpoch(state);
+        if (epoch) return epoch;
+      } catch {
+        // keep trying
+      }
+    }
+
+    throw new Error('SUI_EPOCH_NOT_FOUND');
+  }
   async getTransaction(txDigest: string): Promise<SuiTransactionBlock | null> {
     try {
       return await this.rpc<SuiTransactionBlock>('sui_getTransactionBlock', [
