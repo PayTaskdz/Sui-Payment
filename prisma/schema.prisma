@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  AWAITING_USER_PAYMENT
+  USER_PAYMENT_VERIFIED
+  GAIAN_PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum BankTransferStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model PaymentTarget {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  qrString     String
+  fiatCurrency String
+  isActive     Boolean  @default(true)
+  displayName  String?
+  country      String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders Order[]
+}
+
+model Order {
+  id                     String             @id @default(cuid())
+  gaianOrderId            String?            @unique
+  username                String
+  paymentTargetId         String?
+  payerWalletAddress      String
+  partnerWalletAddress    String
+  cryptoCurrency          String
+  coinType                String
+  expectedCryptoAmountRaw String
+  userPaymentTxDigest     String?
+  userPaymentVerifiedAt   DateTime?
+
+  fiatAmount              Decimal            @db.Decimal(18, 2)
+  fiatCurrency            String
+
+  status                  OrderStatus        @default(AWAITING_USER_PAYMENT)
+  bankTransferStatus      BankTransferStatus?
+  bankTransactionReference Json?
+
+  exchangeRate            Decimal?           @db.Decimal(18, 8)
+  gaianRaw                Json?
+
+  clientRequestId         String?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  paymentTarget PaymentTarget? @relation(fields: [paymentTargetId], references: [id])
+
+  @@index([payerWalletAddress])
+  @@index([username])
+  @@index([status])
+  @@unique([payerWalletAddress, clientRequestId])
+}
+
