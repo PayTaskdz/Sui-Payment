@@ -1,3 +1,4 @@
+
 node_modules
 /dist
 /build
@@ -22,3 +23,7 @@ prisma/migrations
 .DS_Store
 Thumbs.db
 
+#Other
+zklogin-data/*.zkey
+zklogin-data/*.vkey
+zklogin-ceremony-contributions/
