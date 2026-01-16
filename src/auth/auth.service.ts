@@ -212,7 +212,8 @@ export class AuthService {
     });
 
     if (existing) {
-      const address = normalizeSuiAddress(jwtToAddress(dto.idToken, existing.userSaltB64));
+      const saltBigInt = BigInt(`0x${Buffer.from(existing.userSaltB64, 'base64').toString('hex')}`);
+      const address = normalizeSuiAddress(jwtToAddress(dto.idToken, saltBigInt));
       return { salt: existing.userSaltB64, address };
     }
 
@@ -224,7 +225,7 @@ export class AuthService {
       },
     });
 
-    const address = normalizeSuiAddress(jwtToAddress(dto.idToken, created.userSaltB64));
+    const address = normalizeSuiAddress(jwtToAddress(dto.idToken, BigInt(`0x${Buffer.from(created.userSaltB64, 'base64').toString('hex')}`)));
     return { salt: created.userSaltB64, address };
   }
 
