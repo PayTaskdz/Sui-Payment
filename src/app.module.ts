@@ -1,35 +1,29 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { DatabaseModule } from './database/database.module';
-import { AuthModule } from './modules/auth/auth.module';
-import { WalletModule } from './modules/wallet/wallet.module';
-import { TransferModule } from './modules/transfer/transfer.module';
-import { UsersModule } from './modules/users/users.module';
-import { KycModule } from './modules/kyc/kyc.module';
-import { OnchainWalletsModule } from './modules/wallets/onchain/onchain.module';
-import { OffchainWalletsModule } from './modules/wallets/offchain/offchain.module';
-import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
-import { GaianModule } from './integrations/gaian/gaian.module';
-import { BlockchainModule } from './integrations/blockchain/blockchain.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { SuiModule } from './sui/sui.module';
+import { GaianModule } from './gaian/gaian.module';
+import { PaymentsModule } from './payments/payments.module';
+import { AuthModule } from './auth/auth.module';
+import { ProverModule } from './prover/prover.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    DatabaseModule,
-    AuthModule,
-    WalletModule,
-    TransferModule,
-    UsersModule,
-    KycModule,
-    OnchainWalletsModule,
-    OffchainWalletsModule,
-    PaymentMethodsModule,
+    HttpModule,
+    ScheduleModule.forRoot(),
+    PrismaModule,
+    SuiModule,
     GaianModule,
-    BlockchainModule,
+    PaymentsModule,
+    AuthModule,
+    ProverModule,
   ],
   controllers: [AppController],
   providers: [AppService],

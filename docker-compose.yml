@@ -12,6 +12,36 @@ services:
     volumes:
       - sui_payment_pgdata:/var/lib/postgresql/data
 
+  zklogin_prover:
+    image: mysten/zklogin:prover-stable
+    container_name: zklogin_prover
+    restart: unless-stopped
+    environment:
+      - ZKEY=/app/binaries/zkLogin-main.zkey
+      - WITNESS_BINARIES=/app/binaries
+    volumes:
+      # IMPORTANT: this must be a FILE on the host, not a directory.
+      # The prover will segfault if ZKEY points to a directory or a tiny placeholder file.
+      - ./zklogin-data/zkLogin-main.zkey:/app/binaries/zkLogin-main.zkey:ro
+
+  zklogin_prover_fe:
+    image: mysten/zklogin:prover-fe-stable
+    container_name: zklogin_prover_fe
+    restart: unless-stopped
+    command: '8080'
+    depends_on:
+      - zklogin_prover
+    environment:
+      - PROVER_URI=http://zklogin_prover:8080/input
+      - NODE_ENV=production
+      - DEBUG=zkLogin:info,jwks
+      - PROVER_TIMEOUT=30
+    ports:
+      - "8082:8080"
+
 volumes:
   sui_payment_pgdata:
 
+networks:
+  sui-payment-network:
+    driver: bridge

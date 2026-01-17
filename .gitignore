@@ -1,6 +1,13 @@
 # compiled output
 /dist
-/node_modules
+/build
+/coverage
+/.cache
+/.vscode
+/.idea
+
+# env
+.env
 
 # Logs
 logs
@@ -14,31 +21,7 @@ lerna-debug.log*
 # OS
 .DS_Store
 
-# Tests
-/coverage
-/.nyc_output
-
-# IDEs and editors
-/.idea
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
-
-# IDE - VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Database
-*.db
-*.sqlite
+#Other
+zklogin-data/*.zkey
+zklogin-data/*.vkey
+zklogin-ceremony-contributions/
