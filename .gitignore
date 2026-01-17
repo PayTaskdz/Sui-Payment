@@ -1,4 +1,4 @@
-node_modules
+# compiled output
 /dist
 /build
 /coverage
@@ -9,18 +9,17 @@ node_modules
 # env
 .env
 
-# logs
+# Logs
+logs
+*.log
 npm-debug.log*
+pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
-
-# prisma
-prisma/migrations
+lerna-debug.log*
 
 # OS
 .DS_Store
-Thumbs.db
 
 #Other
 zklogin-data/*.zkey

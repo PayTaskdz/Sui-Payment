@@ -25,5 +25,7 @@ import { ProverModule } from './prover/prover.module';
     AuthModule,
     ProverModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
