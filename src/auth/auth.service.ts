@@ -67,13 +67,16 @@ export class AuthService {
     statement?: string;
   }) {
     const lines = [
-      `domain: ${args.domain}`,
-      `address: ${args.address}`,
-      `nonce: ${args.nonce}`,
-      `issuedAt: ${args.issuedAt}`,
-      `expirationTime: ${args.expirationTime}`,
+      `Sign in to ${args.domain}`,
+      '',
+      `Address: ${args.address}`,
+      `Nonce: ${args.nonce}`,
+      `Issued At: ${args.issuedAt}`,
+      `Expiration Time: ${args.expirationTime}`,
     ];
-    if (args.statement) lines.push(`statement: ${args.statement}`);
+    if (args.statement) {
+      lines.push('', args.statement);
+    }
     return lines.join('\n');
   }
 
