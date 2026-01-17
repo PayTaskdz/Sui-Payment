@@ -42,11 +42,11 @@ export class UsersController {
   }
 
   /**
-   * GET /users/:username
+   * GET /users/lookup?username=xxx
    * Lookup user by username (for transfers)
    */
-  @Get(':username')
-  async getUserByUsername(@Param('username') username: string) {
+  @Get('lookup')
+  async getUserByUsername(@Query('username') username: string) {
     return this.usersService.getUserByUsername(username);
   }
 }

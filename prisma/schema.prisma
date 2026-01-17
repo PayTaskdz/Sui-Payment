@@ -38,7 +38,6 @@ model User {
   username        String   @unique
   walletAddress   String   @map("wallet_address")
   email           String?
-  gaianUserId     String?  @map("gaian_user_id")
   
   // KYC Fields (synced from Gaian)
   kycStatus       String   @default("not started") @map("kyc_status") // "not started", "under review", "approved", "rejected"
@@ -76,7 +75,6 @@ model OnchainWallet {
   
   // KYC (synced from Gaian for this wallet)
   kycStatus      String   @default("not started") @map("kyc_status")
-  gaianUserId    String?  @map("gaian_user_id")
   
   // Status
   isDefault      Boolean  @default(false) @map("is_default")
@@ -222,34 +220,4 @@ model Order {
   @@index([status])
   @@unique([payerWalletAddress, clientRequestId])
   @@map("orders")
-}
-
-// ============================================
-// AUDIT LOGS TABLE (Optional - for compliance)
-// Purpose: Audit trail for critical operations
-// ============================================
-model AuditLog {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String?  @map("user_id") @db.Uuid
-  
-  // Action Info
-  action       String   // "wallet_linked", "kyc_approved", "wallet_deleted"
-  resourceType String   @map("resource_type") // "onchain_wallet", "offchain_wallet", "user"
-  resourceId   String?  @map("resource_id") @db.Uuid
-  
-  // Change Tracking
-  oldValue     Json?    @map("old_value") @db.JsonB
-  newValue     Json?    @map("new_value") @db.JsonB
-  
-  // Request Info
-  ipAddress    String?  @map("ip_address")
-  userAgent    String?  @map("user_agent")
-  
-  // Timestamp
-  createdAt    DateTime @default(now()) @map("created_at")
-  
-  @@index([userId])
-  @@index([action])
-  @@index([createdAt])
-  @@map("audit_logs")
 }

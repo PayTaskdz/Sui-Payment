@@ -4,16 +4,16 @@ import { ScanQrDto } from './dto/scan-qr.dto';
 import { AddManualBankDto } from './dto/add-manual-bank.dto';
 import { UpdateBankDto } from './dto/update-bank.dto';
 
-@Controller('wallets/offchain')
+@Controller('wallet/offchain')
 export class OffchainController {
   constructor(private readonly offchainService: OffchainService) {}
 
   /**
-   * POST /wallets/offchain/scan-qr?userId=xxx
-   * UC3B: Add bank from VietQR scan
+   * POST /wallet/offchain/add?userId=xxx
+   * UC3: Add bank via QR scan (primary method)
    */
-  @Post('scan-qr')
-  async scanQr(
+  @Post('add')
+  async addBank(
     @Query('userId') userId: string,
     @Body() dto: ScanQrDto,
   ) {
@@ -21,19 +21,7 @@ export class OffchainController {
   }
 
   /**
-   * POST /wallets/offchain/add-manual?userId=xxx
-   * UC3A: Add bank manually
-   */
-  @Post('add-manual')
-  async addManual(
-    @Query('userId') userId: string,
-    @Body() dto: AddManualBankDto,
-  ) {
-    return this.offchainService.addManual(userId, dto);
-  }
-
-  /**
-   * GET /wallets/offchain?userId=xxx
+   * GET /wallet/offchain?userId=xxx
    * List bank accounts
    */
   @Get()
@@ -42,7 +30,7 @@ export class OffchainController {
   }
 
   /**
-   * GET /wallets/offchain/:id
+   * GET /wallet/offchain/:id
    * Get bank details
    */
   @Get(':id')
@@ -51,7 +39,7 @@ export class OffchainController {
   }
 
   /**
-   * PATCH /wallets/offchain/:id
+   * PATCH /wallet/offchain/:id
    * Update bank info
    */
   @Patch(':id')
@@ -63,26 +51,8 @@ export class OffchainController {
   }
 
   /**
-   * POST /wallets/offchain/:id/deactivate
-   * UC6: Deactivate bank
-   */
-  @Post(':id/deactivate')
-  async deactivateBank(@Param('id') id: string) {
-    return this.offchainService.deactivateBank(id);
-  }
-
-  /**
-   * POST /wallets/offchain/:id/reactivate
-   * Reactivate bank
-   */
-  @Post(':id/reactivate')
-  async reactivateBank(@Param('id') id: string) {
-    return this.offchainService.reactivateBank(id);
-  }
-
-  /**
-   * DELETE /wallets/offchain/:id
-   * UC11: Delete bank account
+   * DELETE /wallet/offchain/:id
+   * Delete bank account
    */
   @Delete(':id')
   async deleteBank(@Param('id') id: string) {

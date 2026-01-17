@@ -57,19 +57,7 @@ export class OnchainService {
       );
     }
 
-    // 4. Check if user has any default wallet (onchain or offchain)
-    const hasDefaultOnchain = await this.prisma.onchainWallet.findFirst({
-      where: { userId, isDefault: true },
-    });
-
-    const hasDefaultOffchain = await this.prisma.offchainWallet.findFirst({
-      where: { userId, isDefault: true },
-    });
-
-    // Only set as default if no other wallet (onchain or offchain) is default
-    const shouldBeDefault = !hasDefaultOnchain && !hasDefaultOffchain;
-
-    // 5. Create wallet
+    // 4. Create wallet (NOT auto-set as default - user must explicitly set receive wallet)
     const wallet = await this.prisma.onchainWallet.create({
       data: {
         userId,
@@ -77,7 +65,7 @@ export class OnchainService {
         chain: data.chain,
         label: data.label || `${data.chain} Wallet`,
         walletProvider: data.walletProvider,
-        isDefault: shouldBeDefault, // Auto set default if no other default exists
+        isDefault: false, // NOT default - user must use setDefaultWallet API
         isActive: true,
       },
     });
@@ -190,62 +178,7 @@ export class OnchainService {
   }
 
   /**
-   * UC6: Deactivate Wallet (Soft Lock)
-   */
-  async deactivateWallet(walletId: string) {
-    const wallet = await this.getWallet(walletId);
-
-    // Deactivate wallet
-    const updated = await this.prisma.onchainWallet.update({
-      where: { id: walletId },
-      data: { isActive: false, isDefault: false },
-    });
-
-    // If it was default, try to set another wallet as default
-    if (wallet.isDefault) {
-      const nextWallet = await this.prisma.onchainWallet.findFirst({
-        where: {
-          userId: wallet.userId,
-          isActive: true,
-          id: { not: walletId },
-        },
-      });
-
-      if (nextWallet) {
-        await this.prisma.onchainWallet.update({
-          where: { id: nextWallet.id },
-          data: { isDefault: true },
-        });
-      }
-    }
-
-    return {
-      walletId: updated.id,
-      isActive: updated.isActive,
-      message: 'Wallet deactivated successfully',
-    };
-  }
-
-  /**
-   * Reactivate wallet
-   */
-  async reactivateWallet(walletId: string) {
-    await this.getWallet(walletId);
-
-    const updated = await this.prisma.onchainWallet.update({
-      where: { id: walletId },
-      data: { isActive: true },
-    });
-
-    return {
-      walletId: updated.id,
-      isActive: updated.isActive,
-      message: 'Wallet reactivated successfully',
-    };
-  }
-
-  /**
-   * UC11: Delete Wallet (Hard Delete)
+   * Delete Wallet (Hard Delete)
    */
   async deleteWallet(walletId: string) {
     const wallet = await this.getWallet(walletId);

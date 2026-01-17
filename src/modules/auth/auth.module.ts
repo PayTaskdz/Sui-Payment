@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../database/database.module';
+import { GaianModule } from '../../integrations/gaian/gaian.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { GaianModule } from '../../integrations/gaian/gaian.module';
 
 @Module({
-  imports: [GaianModule],
+  imports: [DatabaseModule, GaianModule],
   controllers: [AuthController],
   providers: [AuthService],
   exports: [AuthService],

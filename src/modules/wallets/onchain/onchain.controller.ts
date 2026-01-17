@@ -3,12 +3,12 @@ import { OnchainService } from './onchain.service';
 import { AddOnchainWalletDto } from './dto/add-onchain-wallet.dto';
 import { UpdateWalletDto } from './dto/update-wallet.dto';
 
-@Controller('wallets/onchain')
+@Controller('wallet/onchain')
 export class OnchainController {
   constructor(private readonly onchainService: OnchainService) {}
 
   /**
-   * POST /wallets/onchain/add?userId=xxx
+   * POST /wallet/onchain/add?userId=xxx
    * UC2: Link Onchain Wallet (connect/manual/QR)
    */
   @Post('add')
@@ -20,7 +20,7 @@ export class OnchainController {
   }
 
   /**
-   * GET /wallets/onchain?userId=xxx
+   * GET /wallet/onchain?userId=xxx
    * List all onchain wallets for user
    */
   @Get()
@@ -29,7 +29,7 @@ export class OnchainController {
   }
 
   /**
-   * GET /wallets/onchain/:id
+   * GET /wallet/onchain/:id
    * Get wallet details
    */
   @Get(':id')
@@ -38,7 +38,7 @@ export class OnchainController {
   }
 
   /**
-   * GET /wallets/onchain/:id/balance
+   * GET /wallet/onchain/:id/balance
    * Query balance from blockchain RPC
    */
   @Get(':id/balance')
@@ -47,7 +47,7 @@ export class OnchainController {
   }
 
   /**
-   * PATCH /wallets/onchain/:id
+   * PATCH /wallet/onchain/:id
    * Update wallet label
    */
   @Patch(':id')
@@ -59,26 +59,8 @@ export class OnchainController {
   }
 
   /**
-   * POST /wallets/onchain/:id/deactivate
-   * UC6: Deactivate wallet (soft lock)
-   */
-  @Post(':id/deactivate')
-  async deactivateWallet(@Param('id') id: string) {
-    return this.onchainService.deactivateWallet(id);
-  }
-
-  /**
-   * POST /wallets/onchain/:id/reactivate
-   * Reactivate wallet
-   */
-  @Post(':id/reactivate')
-  async reactivateWallet(@Param('id') id: string) {
-    return this.onchainService.reactivateWallet(id);
-  }
-
-  /**
-   * DELETE /wallets/onchain/:id
-   * UC11: Hard delete wallet
+   * DELETE /wallet/onchain/:id
+   * Hard delete wallet
    */
   @Delete(':id')
   async deleteWallet(@Param('id') id: string) {

@@ -44,7 +44,18 @@ export class UsersService {
       isActive: user.isActive,
       defaultWallet: defaultOnchain || defaultOffchain || null,
       onchainWallets: user.onchainWallets,
-      offchainWallets: user.offchainWallets,
+      offchainWallets: user.offchainWallets.map(wallet => ({
+        id: wallet.id,
+        bankInfo: {
+          bankName: wallet.bankName,
+          accountNumber: wallet.accountNumber,
+          accountName: wallet.accountName,
+          country: wallet.country,
+          bankBin: wallet.bankBin,
+        },
+        isDefault: wallet.isDefault,
+        label: wallet.label,
+      })),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
