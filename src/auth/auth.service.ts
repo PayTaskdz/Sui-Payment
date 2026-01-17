@@ -111,7 +111,7 @@ export class AuthService {
     }
 
     const expectedMessage = this.buildExpectedMessage({
-      domain: this.domain,
+      domain: dto.domain ?? this.domain,
       address,
       nonce: dto.nonce,
       issuedAt: dto.issuedAt,
