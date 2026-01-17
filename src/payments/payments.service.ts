@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, Order, PaymentTarget } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ConfirmUserPaymentDto } from './dto/confirm-user-payment.dto';
@@ -31,6 +31,8 @@ export class PaymentsService {
       userPaymentVerifiedAt: order.userPaymentVerifiedAt,
       fiatAmount: String(order.fiatAmount),
       fiatCurrency: order.fiatCurrency,
+      hiddenWalletFeeRate: order.hiddenWalletFeeRate ? String(order.hiddenWalletFeeRate) : null,
+      hiddenWalletFeeAmount: order.hiddenWalletFeeAmount ? String(order.hiddenWalletFeeAmount) : null,
       status: order.status,
       bankTransferStatus: order.bankTransferStatus,
       bankTransactionReference: order.bankTransactionReference,
@@ -72,6 +74,56 @@ export class PaymentsService {
 
     const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
 
+    const feePercentStr = this.configService.get<string>('HIDDEN_WALLET_FEE_PERCENT') ?? '0.2';
+    const feeRate = Number(feePercentStr) / 100;
+    if (!Number.isFinite(feeRate) || feeRate < 0) {
+      throw new BadRequestException('INVALID_HIDDEN_WALLET_FEE_PERCENT');
+    }
+
+    if (dto.clientRequestId) {
+      const existing = await this.prisma.order.findUnique({
+        where: {
+          payerWalletAddress_clientRequestId: {
+            payerWalletAddress: dto.payerWalletAddress,
+            clientRequestId: dto.clientRequestId,
+          },
+        },
+      });
+
+      if (existing) {
+        const existingFeeRate = existing.hiddenWalletFeeRate ? Number(existing.hiddenWalletFeeRate) : feeRate;
+        const existingFeePercent = String(existingFeeRate * 100);
+
+        const baseCryptoAmountRaw = existing.hiddenWalletFeeAmount
+          ? String(Number(existing.expectedCryptoAmountRaw) - Number(existing.hiddenWalletFeeAmount))
+          : existing.expectedCryptoAmountRaw;
+
+        return {
+          id: existing.id,
+          status: existing.status,
+          exchangeInfo: (existing.gaianRaw as any)?.exchangeInfo ?? null,
+          hiddenWallet: {
+            feePercent: existingFeePercent,
+            feeRate: existingFeeRate,
+            feeAmount: existing.hiddenWalletFeeAmount ? Number(existing.hiddenWalletFeeAmount) : 0,
+            amountBeforeFee: Number(baseCryptoAmountRaw),
+            amountWithFee: Number(existing.expectedCryptoAmountRaw),
+          },
+          paymentInstruction: {
+            toAddress: existing.partnerWalletAddress,
+            coinType: existing.coinType,
+            totalCrypto: (Number(existing.expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(4),
+            totalCryptoRaw: existing.expectedCryptoAmountRaw,
+            totalPayout: Number(existing.fiatAmount),
+          },
+          payout: {
+            username: target.username,
+            fiatCurrency: target.fiatCurrency,
+          },
+        };
+      }
+    }
+
     const exchangeResp = await this.gaian.calculateExchange({
       amount: dto.amount,
       country: dto.country,
@@ -84,9 +136,19 @@ export class PaymentsService {
     }
 
     const cryptoAmount = String(exchangeResp.exchangeInfo.cryptoAmount);
-    const expectedCryptoAmountRaw = isRawIntString(cryptoAmount)
+    const gaianExpectedCryptoAmountRaw = isRawIntString(cryptoAmount)
       ? cryptoAmount
       : decimalToRawAmount(cryptoAmount, usdcDecimals);
+
+    const gaianExpected = Number(gaianExpectedCryptoAmountRaw);
+
+    const expectedCryptoAmountRaw = String(
+      Math.ceil(gaianExpected / (1 - feeRate)),
+    );
+
+    const hiddenWalletFeeAmountRaw = Math.max(0, Number(expectedCryptoAmountRaw) - gaianExpected);
+
+    const hiddenWalletFeeAmount = hiddenWalletFeeAmountRaw / Math.pow(10, usdcDecimals);
 
     const exchangeRate = exchangeResp.exchangeInfo.exchangeRate
       ? Number(exchangeResp.exchangeInfo.exchangeRate)
@@ -103,6 +165,8 @@ export class PaymentsService {
         expectedCryptoAmountRaw,
         fiatAmount: dto.amount,
         fiatCurrency: dto.fiatCurrency,
+        hiddenWalletFeeRate: feeRate,
+        hiddenWalletFeeAmount: hiddenWalletFeeAmount,
         exchangeRate,
         gaianRaw: exchangeResp,
         clientRequestId: dto.clientRequestId,
@@ -113,10 +177,19 @@ export class PaymentsService {
       id: order.id,
       status: order.status,
       exchangeInfo: exchangeResp.exchangeInfo,
+      hiddenWallet: {
+        feePercent: feePercentStr,
+        feeRate,
+        feeAmount: hiddenWalletFeeAmountRaw,
+        amountBeforeFee: Number(gaianExpectedCryptoAmountRaw),
+        amountWithFee: Number(expectedCryptoAmountRaw),
+      },
       paymentInstruction: {
         toAddress: partnerWalletAddress,
         coinType,
-        amountRaw: expectedCryptoAmountRaw,
+        totalCrypto: (Number(expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(4),
+        totalCryptoRaw: expectedCryptoAmountRaw,
+        totalPayout: dto.amount,
       },
       payout: {
         username: target.username,
@@ -125,7 +198,7 @@ export class PaymentsService {
     };
   }
 
-  
+
 
   async confirmUserPayment(orderId: string, dto: ConfirmUserPaymentDto): Promise<OrderResponseDto> {
     // Start a transaction to handle both verification and Gaian call atomically

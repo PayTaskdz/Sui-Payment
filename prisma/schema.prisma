@@ -205,6 +205,10 @@ model Order {
   fiatAmount               Decimal            @db.Decimal(18, 2)
   fiatCurrency             String
 
+  hiddenWalletFeeRate      Decimal?           @db.Decimal(9, 6)
+  hiddenWalletFeeAmountRaw String?
+  hiddenWalletFeeAmount    Decimal?           @db.Decimal(18, 6)
+
   status                   OrderStatus        @default(AWAITING_USER_PAYMENT)
   bankTransferStatus       BankTransferStatus?
   bankTransactionReference Json?

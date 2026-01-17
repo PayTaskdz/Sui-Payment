@@ -32,6 +32,12 @@ export class OrderResponseDto {
   @ApiProperty()
   fiatCurrency: string;
 
+  @ApiProperty({ required: false, nullable: true })
+  hiddenWalletFeeRate: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  hiddenWalletFeeAmount: string | null;
+
   @ApiProperty({ enum: ['AWAITING_USER_PAYMENT', 'USER_PAYMENT_VERIFIED', 'CONFIRMING_GAIAN_PAYMENT', 'CONFIRMED_GAIAN_PAYMENT', 'COMPLETED', 'FAILED'] })
   status: string;
 

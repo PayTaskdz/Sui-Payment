@@ -21,7 +21,19 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder().setTitle('Sui Payment API').setVersion('1.0').build();
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Sui Payment API')
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        in: 'header',
+      },
+      'bearer',
+    )
+    .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api', app, document);
 
