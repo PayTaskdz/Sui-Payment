@@ -188,6 +188,77 @@ export class UsersService {
       } : null,
     };
   }
+async checkUsernameAvailability(username: string) {
+    const clean = (username || '').trim().toLowerCase();
+
+    if (clean.length < 3 || clean.length > 30) {
+      return { available: false };
+    }
+
+    if (!/^[a-z0-9_]+$/.test(clean)) {
+      return { available: false };
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { username: clean },
+      select: { id: true },
+    });
+
+    return { available: !existing };
+  }
+
+  async completeOnboarding(
+    userId: string,
+    dto: { username: string; email?: string; referralUsername?: string },
+  ) {
+    const username = dto.username.trim().toLowerCase();
+
+    if (username.length < 3 || username.length > 30 || !/^[a-z0-9_]+$/.test(username)) {
+      throw new BusinessException('Invalid username', 'USERNAME_INVALID', 400);
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const existing = await this.prisma.user.findUnique({ where: { username } });
+    if (existing && existing.id !== userId) {
+      throw new BusinessException('Username already taken', 'USERNAME_TAKEN', 409);
+    }
+
+    let referrerId: string | null = null;
+    if (dto.referralUsername) {
+      const referralUsername = dto.referralUsername.trim().toLowerCase();
+      if (!/^[a-z0-9_]+$/.test(referralUsername)) {
+        throw new BusinessException('Invalid referral username', 'REFERRAL_USERNAME_INVALID', 400);
+      }
+
+      const referrer = await this.prisma.user.findUnique({ where: { username: referralUsername } });
+      if (!referrer) {
+        throw new BusinessException('Referrer not found', 'REFERRER_NOT_FOUND', 404);
+      }
+      if (referrer.id === userId) {
+        throw new BusinessException('Cannot refer yourself', 'REFERRER_SELF', 400);
+      }
+      referrerId = referrer.id;
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        username,
+        email: dto.email ?? user.email,
+        referrerId: referrerId ?? user.referrerId,
+      },
+    });
+
+    return {
+      userId: updated.id,
+      username: updated.username,
+      email: updated.email,
+      referrerId: updated.referrerId,
+      updatedAt: updated.updatedAt,
+    };
+  }
 
   /**
    * Calculate rewards for a completed order

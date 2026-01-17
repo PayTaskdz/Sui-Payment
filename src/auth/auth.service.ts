@@ -88,7 +88,6 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: {
           walletAddress: address,
-          username: `user_${address.slice(2, 10)}`,
         },
       });
     }

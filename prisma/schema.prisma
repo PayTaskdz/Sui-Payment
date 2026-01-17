@@ -36,7 +36,7 @@ enum BankTransferStatus {
 // ============================================
 model User {
   id              String   @id @default(uuid()) @db.Uuid
-  username        String   @unique
+  username        String?  @unique
   walletAddress   String   @map("wallet_address")
   email           String?
 
