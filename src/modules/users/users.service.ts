@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { AppConfigService } from '../../config/config.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: AppConfigService,
+  ) {}
 
   /**
    * Get user profile with wallets and KYC status
@@ -20,6 +24,11 @@ export class UsersService {
         offchainWallets: {
           where: { isActive: true },
           orderBy: { createdAt: 'desc' },
+        },
+        _count: {
+          select: {
+            referees: true,
+          },
         },
       },
     });
@@ -42,6 +51,9 @@ export class UsersService {
       kycStatus: user.kycStatus,
       canTransfer: user.kycStatus === 'approved',
       isActive: user.isActive,
+      refereesCount: user._count.referees,
+      loyaltyPoints: user.loyaltyPoints,
+      commissionBalance: user.commissionBalance,
       defaultWallet: defaultOnchain || defaultOffchain || null,
       onchainWallets: user.onchainWallets,
       offchainWallets: user.offchainWallets.map(wallet => ({
@@ -175,5 +187,51 @@ export class UsersService {
         accountNumber: 'accountNumber' in defaultWallet ? defaultWallet.accountNumber : null,
       } : null,
     };
+  }
+
+  /**
+   * Calculate rewards for a completed order
+   * - F1 (user who made transaction): Earns loyalty points
+   * - F0 (referrer): Earns commission from F1's transaction fees
+   */
+  async calculateRewards(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) return;
+
+    // Lookup user by username
+    const user = await this.prisma.user.findFirst({
+      where: { username: order.username },
+      include: { referrer: true },
+    });
+
+    if (!user) return;
+
+    // --- A. TÍNH POINT (F1) ---
+    // Rule: Có GaianID + Currency VN + Giá trị > 50$ (đổi từ raw)
+    const usdcValue = Number(order.expectedCryptoAmountRaw || '0') / 1_000_000;
+    
+    if (order.gaianOrderId && order.fiatCurrency === 'VN' && usdcValue > 50) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { loyaltyPoints: { increment: usdcValue } }
+      });
+    }
+
+    // --- B. TÍNH COMMISSION (F0) ---
+    // Rule: 15% của Fee thu được (configurable via REFERRAL_COMMISSION_RATE)
+    if (user.referrer) {
+      const feeCollected = Number(order.hiddenWalletFeeAmount || 0);
+      const commission = feeCollected * this.config.referralCommissionRate;
+
+      if (commission > 0) {
+        await this.prisma.user.update({
+          where: { id: user.referrer.id },
+          data: { commissionBalance: { increment: commission } }
+        });
+      }
+    }
   }
 }

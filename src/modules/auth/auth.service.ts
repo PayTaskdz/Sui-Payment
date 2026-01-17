@@ -11,12 +11,29 @@ export class AuthService {
     private gaianService: GaianService,
   ) {}
   
-  async register(dto: { walletAddress: string; email?: string }) {
+  async register(dto: { walletAddress: string; referralUsername?: string }) {
     try {
+      // Lookup referrer if referralUsername provided
+      let referrerId: string | undefined;
+      if (dto.referralUsername) {
+        const referrer = await this.prisma.user.findFirst({
+          where: { username: dto.referralUsername },
+        });
+        
+        if (!referrer) {
+          throw new BusinessException(
+            'Referral username not found',
+            'INVALID_REFERRAL',
+            HttpStatus.BAD_REQUEST
+          );
+        }
+        
+        referrerId = referrer.id;
+      }
+
       // Call Gaian API to register user
       const gaianResponse = await this.gaianService.registerUser({
         walletAddress: dto.walletAddress,
-        email: dto.email,
       });
 
       if (gaianResponse.status !== 'success') {
@@ -38,6 +55,7 @@ export class AuthService {
           data: {
             walletAddress: dto.walletAddress,
             username: dto.walletAddress.substring(0, 10), // Use wallet address prefix as username
+            referrerId: referrerId, // Set referrer ID if provided
           },
         });
       }

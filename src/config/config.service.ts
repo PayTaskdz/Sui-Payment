@@ -25,6 +25,10 @@ export class AppConfigService {
     return this.configService.get<string>('JWT_SECRET');
   }
 
+  get referralCommissionRate(): number {
+    return this.configService.get<number>('REFERRAL_COMMISSION_RATE', 0.15);
+  }
+
   get port(): number {
     return this.configService.get<number>('PORT', 3000);
   }

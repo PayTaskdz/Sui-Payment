@@ -1,7 +1,6 @@
 import { Controller, Post, Get, Patch, Delete, Body, Param, Query } from '@nestjs/common';
 import { OffchainService } from './offchain.service';
 import { ScanQrDto } from './dto/scan-qr.dto';
-import { AddManualBankDto } from './dto/add-manual-bank.dto';
 import { UpdateBankDto } from './dto/update-bank.dto';
 
 @Controller('wallet/offchain')
@@ -10,7 +9,7 @@ export class OffchainController {
 
   /**
    * POST /wallet/offchain/add?userId=xxx
-   * UC3: Add bank via QR scan (primary method)
+   * UC3: Add bank via QR scan
    */
   @Post('add')
   async addBank(

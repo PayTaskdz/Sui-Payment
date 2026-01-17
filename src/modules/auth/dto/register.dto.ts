@@ -1,10 +1,10 @@
-import { IsString, IsEmail, IsOptional } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
   walletAddress: string;
 
-  @IsEmail()
+  @IsString()
   @IsOptional()
-  email?: string;
+  referralUsername?: string;
 }
