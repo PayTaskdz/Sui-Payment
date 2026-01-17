@@ -80,9 +80,14 @@ export class AuthService {
   async verifyAndIssueToken(dto: VerifyDto) {
     const address = normalizeSuiAddress(dto.address);
 
-    const user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
+    let user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
     if (!user) {
-      throw new BadRequestException('USER_NOT_FOUND');
+      user = await this.prisma.user.create({
+        data: {
+          walletAddress: address,
+          username: `user_${address.slice(2, 10)}`,
+        },
+      });
     }
 
     const nonceRow = await this.prisma.authNonce.findFirst({
@@ -173,6 +178,7 @@ export class AuthService {
     return {
       accessToken: token,
       tokenType: 'Bearer',
+      needsOnboarding: !user.username,
     };
   }
 
