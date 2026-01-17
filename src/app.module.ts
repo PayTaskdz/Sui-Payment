@@ -1,15 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
-import { AppConfigModule } from './config/config.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { OnchainWalletsModule } from './modules/wallets/onchain/onchain.module';
+import { OffchainWalletsModule } from './modules/wallets/offchain/offchain.module';
+import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
 import { GaianModule } from './integrations/gaian/gaian.module';
-import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { OnchainWalletsModule } from './wallets/onchain/onchain-wallets.module';
-import { OffchainWalletsModule } from './wallets/offchain/offchain-wallets.module';
-import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
-import { KycModule } from './kyc/kyc.module';
-import { ContactsModule } from './contacts/contacts.module';
+import { BlockchainModule } from './integrations/blockchain/blockchain.module';
 
 @Module({
   imports: [
@@ -17,15 +19,17 @@ import { ContactsModule } from './contacts/contacts.module';
       isGlobal: true,
     }),
     DatabaseModule,
-    AppConfigModule,
-    GaianModule,
     AuthModule,
     UsersModule,
+    KycModule,
     OnchainWalletsModule,
     OffchainWalletsModule,
     PaymentMethodsModule,
-    KycModule,
     ContactsModule,
+    GaianModule,
+    BlockchainModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
