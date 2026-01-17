@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../database/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ConfirmUserPaymentDto } from './dto/confirm-user-payment.dto';
 import { GaianClient } from '../gaian/gaian.client';
@@ -17,7 +17,7 @@ export class PaymentsService {
     private readonly configService: ConfigService,
     private readonly gaian: GaianClient,
     private readonly suiRpc: SuiRpcService,
-  ) {}
+  ) { }
 
   private toOrderResponse(order: any): OrderResponseDto {
     return {
@@ -40,12 +40,12 @@ export class PaymentsService {
       gaianOrderId: order.gaianOrderId ?? null,
       paymentTarget: order.paymentTarget
         ? {
-            id: order.paymentTarget.id,
-            username: order.paymentTarget.username,
-            fiatCurrency: order.paymentTarget.fiatCurrency,
-            displayName: order.paymentTarget.displayName,
-            country: order.paymentTarget.country,
-          }
+          id: order.paymentTarget.id,
+          username: order.paymentTarget.username,
+          fiatCurrency: order.paymentTarget.fiatCurrency,
+          displayName: order.paymentTarget.displayName,
+          country: order.paymentTarget.country,
+        }
         : undefined,
       clientRequestId: order.clientRequestId ?? null,
       createdAt: order.createdAt,

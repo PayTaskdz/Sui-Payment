@@ -1,8 +1,13 @@
-import { Controller, Get, Patch, Body, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangeUsernameDto } from './dto/change-username.dto';
 
+@ApiTags('Users')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
@@ -13,8 +18,8 @@ export class UsersController {
    * TODO: Later replace with JWT @CurrentUser() decorator
    */
   @Get('profile')
-  async getProfile(@Query('userId') userId: string) {
-    return this.usersService.getProfile(userId);
+  async getProfile(@Req() req: any) {
+    return this.usersService.getProfile(req.user.userId);
   }
 
   /**
@@ -22,11 +27,8 @@ export class UsersController {
    * Update profile info (email, firstName, lastName)
    */
   @Patch('profile')
-  async updateProfile(
-    @Query('userId') userId: string,
-    @Body() dto: UpdateProfileDto,
-  ) {
-    return this.usersService.updateProfile(userId, dto);
+  async updateProfile(@Req() req: any, @Body() dto: UpdateProfileDto) {
+    return this.usersService.updateProfile(req.user.userId, dto);
   }
 
   /**
@@ -34,11 +36,8 @@ export class UsersController {
    * UC7: Change username (rate limit: 3 per 30 days)
    */
   @Patch('profile/username')
-  async changeUsername(
-    @Query('userId') userId: string,
-    @Body() dto: ChangeUsernameDto,
-  ) {
-    return this.usersService.changeUsername(userId, dto.newUsername);
+  async changeUsername(@Req() req: any, @Body() dto: ChangeUsernameDto) {
+    return this.usersService.changeUsername(req.user.userId, dto.newUsername);
   }
 
   /**

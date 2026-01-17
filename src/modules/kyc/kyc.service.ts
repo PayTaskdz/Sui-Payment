@@ -8,7 +8,7 @@ export class KycService {
   constructor(
     private prisma: PrismaService,
     private gaianService: GaianService,
-  ) {}
+  ) { }
 
   /**
    * UC12: Get KYC Link from Gaian
@@ -27,13 +27,13 @@ export class KycService {
     // 2. Call Gaian to get KYC link
     try {
       const response = await this.gaianService.getKycLink(walletAddress);
-      
+
       return {
         walletAddress,
         kycLink: response.websdkUrl || response.url,
         expiresAt: response.expiresAt,
       };
-    } catch (error) {
+    } catch (error: any) {
       throw new BusinessException(
         'Failed to get KYC link from Gaian',
         'GAIAN_KYC_LINK_FAILED',
@@ -60,7 +60,7 @@ export class KycService {
     // 2. Get KYC status from Gaian
     try {
       const gaianUser = await this.gaianService.getUserInfo(walletAddress);
-      
+
       const kycStatus = gaianUser.kyc?.status || 'not started';
       const firstName = gaianUser.kyc?.firstName || null;
       const lastName = gaianUser.kyc?.lastName || null;
@@ -84,7 +84,7 @@ export class KycService {
         lastName: updatedUser.lastName,
         canTransfer: updatedUser.kycStatus === 'approved',
       };
-    } catch (error) {
+    } catch (error: any) {
       throw new BusinessException(
         'Failed to get KYC status from Gaian',
         'GAIAN_KYC_STATUS_FAILED',

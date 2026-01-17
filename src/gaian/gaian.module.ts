@@ -7,5 +7,5 @@ import { GaianClient } from './gaian.client';
   providers: [GaianClient],
   exports: [GaianClient],
 })
-export class GaianModule {}
+export class GaianClientModule { }
 

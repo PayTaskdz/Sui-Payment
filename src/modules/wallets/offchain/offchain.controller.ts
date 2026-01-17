@@ -1,8 +1,13 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { OffchainService } from './offchain.service';
 import { ScanQrDto } from './dto/scan-qr.dto';
 import { UpdateBankDto } from './dto/update-bank.dto';
 
+@ApiTags('Offchain')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard)
 @Controller('wallet/offchain')
 export class OffchainController {
   constructor(private readonly offchainService: OffchainService) {}
@@ -12,11 +17,8 @@ export class OffchainController {
    * UC3: Add bank via QR scan
    */
   @Post('add')
-  async addBank(
-    @Query('userId') userId: string,
-    @Body() dto: ScanQrDto,
-  ) {
-    return this.offchainService.scanQr(userId, dto.qrString, dto.label);
+  async addBank(@Req() req: any, @Body() dto: ScanQrDto) {
+    return this.offchainService.scanQr(req.user.userId, dto.qrString, dto.label);
   }
 
   /**
@@ -24,8 +26,8 @@ export class OffchainController {
    * List bank accounts
    */
   @Get()
-  async listBanks(@Query('userId') userId: string) {
-    return this.offchainService.listBanks(userId);
+  async listBanks(@Req() req: any) {
+    return this.offchainService.listBanks(req.user.userId);
   }
 
   /**
@@ -33,8 +35,8 @@ export class OffchainController {
    * Get bank details
    */
   @Get(':id')
-  async getBank(@Param('id') id: string) {
-    return this.offchainService.getBank(id);
+  async getBank(@Req() req: any, @Param('id') id: string) {
+    return this.offchainService.getBank(req.user.userId, id);
   }
 
   /**
@@ -42,11 +44,8 @@ export class OffchainController {
    * Update bank info
    */
   @Patch(':id')
-  async updateBank(
-    @Param('id') id: string,
-    @Body() dto: UpdateBankDto,
-  ) {
-    return this.offchainService.updateBank(id, dto);
+  async updateBank(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateBankDto) {
+    return this.offchainService.updateBank(req.user.userId, id, dto);
   }
 
   /**
@@ -54,7 +53,7 @@ export class OffchainController {
    * Delete bank account
    */
   @Delete(':id')
-  async deleteBank(@Param('id') id: string) {
-    return this.offchainService.deleteBank(id);
+  async deleteBank(@Req() req: any, @Param('id') id: string) {
+    return this.offchainService.deleteBank(req.user.userId, id);
   }
 }

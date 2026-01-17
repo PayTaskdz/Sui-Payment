@@ -80,6 +80,11 @@ export class AuthService {
   async verifyAndIssueToken(dto: VerifyDto) {
     const address = normalizeSuiAddress(dto.address);
 
+    const user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
+    if (!user) {
+      throw new BadRequestException('USER_NOT_FOUND');
+    }
+
     const nonceRow = await this.prisma.authNonce.findFirst({
       where: {
         address,
@@ -163,7 +168,7 @@ export class AuthService {
       data: { usedAt: new Date() },
     });
 
-    const token = await this.jwt.signAsync({ sub: address, address });
+    const token = await this.jwt.signAsync({ sub: user.id, address });
 
     return {
       accessToken: token,

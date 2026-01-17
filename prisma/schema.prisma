@@ -39,7 +39,7 @@ model User {
   username        String   @unique
   walletAddress   String   @map("wallet_address")
   email           String?
-  
+
   // KYC Fields (synced from Gaian)
   kycStatus       String   @default("not started") @map("kyc_status")
   firstName       String?  @map("first_name")
@@ -47,7 +47,7 @@ model User {
 
   // --- B. QUAN HỆ GIỚI THIỆU (Referral System - 1 Cấp) ---
   referrerId      String?  @map("referrer_id") @db.Uuid // ID của người giới thiệu mình (F0)
-  
+
   // --- C. REWARDS & COMMISSION ---
   loyaltyPoints      Float    @default(0) @map("loyalty_points") // Điểm tích luỹ từ giao dịch (F1 nhận)
   commissionBalance  Float    @default(0) @map("commission_balance") // Hoa hồng từ F1 (F0 nhận)
@@ -65,7 +65,7 @@ model User {
   contacts        Contact[]
   referrer        User?    @relation("UserReferral", fields: [referrerId], references: [id], onDelete: SetNull)
   referees        User[]   @relation("UserReferral") // Danh sách F1 mình đã giới thiệu
-  
+
   @@index([referrerId])
   @@map("users")
 }
@@ -86,7 +86,7 @@ model OnchainWallet {
 
   // KYC (synced from Gaian for this wallet)
   kycStatus      String   @default("not started") @map("kyc_status")
-  
+
   // Status
   isDefault      Boolean  @default(false) @map("is_default")
   isActive       Boolean  @default(true) @map("is_active")
@@ -235,4 +235,38 @@ model Order {
   @@index([status])
   @@unique([payerWalletAddress, clientRequestId])
   @@map("orders")
+}
+
+// ============================================
+// AUTH NONCE TABLE
+// Purpose: Wallet login challenge nonces + zkLogin computed nonces
+// ============================================
+model AuthNonce {
+  id        String   @id @default(cuid())
+  address   String
+  nonce     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([address])
+  @@index([expiresAt])
+  @@unique([address, nonce])
+  @@map("auth_nonces")
+}
+
+// ============================================
+// ZKLOGIN SALT TABLE
+// Purpose: Persistent per-user salt for zkLogin address derivation
+// ============================================
+model ZkLoginSalt {
+  id              String   @id @default(cuid())
+  provider        String
+  providerSub     String
+  userSaltB64     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([provider, providerSub], name: "provider_providerSub")
+  @@map("zklogin_salts")
 }

@@ -8,7 +8,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private config: AppConfigService,
-  ) {}
+  ) { }
 
   /**
    * Get user profile with wallets and KYC status
@@ -38,8 +38,8 @@ export class UsersService {
     }
 
     // Find default wallet
-    const defaultOnchain = user.onchainWallets.find(w => w.isDefault);
-    const defaultOffchain = user.offchainWallets.find(w => w.isDefault);
+    const defaultOnchain = user.onchainWallets.find((w: any) => w.isDefault);
+    const defaultOffchain = user.offchainWallets.find((w: any) => w.isDefault);
 
     return {
       userId: user.id,
@@ -56,7 +56,7 @@ export class UsersService {
       commissionBalance: user.commissionBalance,
       defaultWallet: defaultOnchain || defaultOffchain || null,
       onchainWallets: user.onchainWallets,
-      offchainWallets: user.offchainWallets.map(wallet => ({
+      offchainWallets: user.offchainWallets.map((wallet: any) => ({
         id: wallet.id,
         bankInfo: {
           bankName: wallet.bankName,
@@ -212,7 +212,7 @@ export class UsersService {
     // --- A. TÍNH POINT (F1) ---
     // Rule: Có GaianID + Currency VN + Giá trị > 50$ (đổi từ raw)
     const usdcValue = Number(order.expectedCryptoAmountRaw || '0') / 1_000_000;
-    
+
     if (order.gaianOrderId && order.fiatCurrency === 'VN' && usdcValue > 50) {
       await this.prisma.user.update({
         where: { id: user.id },

@@ -1,7 +1,11 @@
-import { Controller, Post, Get, Body, Query, BadRequestException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { KycService } from './kyc.service';
 import { GetKycLinkDto } from './dto/get-kyc-link.dto';
 
+@ApiTags('Kyc')
+@ApiBearerAuth('bearer')
 @Controller('kyc')
 export class KycController {
   constructor(private readonly kycService: KycService) {}
@@ -10,6 +14,7 @@ export class KycController {
    * POST /kyc/get-link
    * UC12: Get WebSDK URL from Gaian for KYC verification
    */
+  @UseGuards(JwtAuthGuard)
   @Post('get-link')
   async getKycLink(@Body() dto: GetKycLinkDto) {
     return this.kycService.getKycLink(dto.walletAddress);
@@ -19,6 +24,7 @@ export class KycController {
    * GET /kyc/status?walletAddress=xxx
    * UC12: Check KYC status from Gaian and sync to DB
    */
+  @UseGuards(JwtAuthGuard)
   @Get('status')
   async getKycStatus(@Query('walletAddress') walletAddress: string) {
     if (!walletAddress) {

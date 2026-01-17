@@ -9,8 +9,8 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private gaianService: GaianService,
-  ) {}
-  
+  ) { }
+
   async register(dto: { walletAddress: string; referralUsername?: string }) {
     try {
       // Lookup referrer if referralUsername provided
@@ -19,7 +19,7 @@ export class AuthService {
         const referrer = await this.prisma.user.findFirst({
           where: { username: dto.referralUsername },
         });
-        
+
         if (!referrer) {
           throw new BusinessException(
             'Referral username not found',
@@ -27,7 +27,7 @@ export class AuthService {
             HttpStatus.BAD_REQUEST
           );
         }
-        
+
         referrerId = referrer.id;
       }
 
@@ -68,7 +68,7 @@ export class AuthService {
           gaianUser: gaianResponse.user,
         },
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof BusinessException) {
         throw error;
       }

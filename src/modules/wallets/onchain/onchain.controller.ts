@@ -1,8 +1,13 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { OnchainService } from './onchain.service';
 import { AddOnchainWalletDto } from './dto/add-onchain-wallet.dto';
 import { UpdateWalletDto } from './dto/update-wallet.dto';
 
+@ApiTags('Onchain')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard)
 @Controller('wallet/onchain')
 export class OnchainController {
   constructor(private readonly onchainService: OnchainService) {}
@@ -12,11 +17,8 @@ export class OnchainController {
    * UC2: Link Onchain Wallet (connect/manual/QR)
    */
   @Post('add')
-  async addWallet(
-    @Query('userId') userId: string,
-    @Body() dto: AddOnchainWalletDto,
-  ) {
-    return this.onchainService.addWallet(userId, dto);
+  async addWallet(@Req() req: any, @Body() dto: AddOnchainWalletDto) {
+    return this.onchainService.addWallet(req.user.userId, dto);
   }
 
   /**
@@ -24,8 +26,8 @@ export class OnchainController {
    * List all onchain wallets for user
    */
   @Get()
-  async listWallets(@Query('userId') userId: string) {
-    return this.onchainService.listWallets(userId);
+  async listWallets(@Req() req: any) {
+    return this.onchainService.listWallets(req.user.userId);
   }
 
   /**
@@ -33,8 +35,8 @@ export class OnchainController {
    * Get wallet details
    */
   @Get(':id')
-  async getWallet(@Param('id') id: string) {
-    return this.onchainService.getWallet(id);
+  async getWallet(@Req() req: any, @Param('id') id: string) {
+    return this.onchainService.getWallet(req.user.userId, id);
   }
 
   /**
@@ -42,8 +44,8 @@ export class OnchainController {
    * Query balance from blockchain RPC
    */
   @Get(':id/balance')
-  async getBalance(@Param('id') id: string) {
-    return this.onchainService.getBalance(id);
+  async getBalance(@Req() req: any, @Param('id') id: string) {
+    return this.onchainService.getBalance(req.user.userId, id);
   }
 
   /**
@@ -51,11 +53,8 @@ export class OnchainController {
    * Update wallet label
    */
   @Patch(':id')
-  async updateWallet(
-    @Param('id') id: string,
-    @Body() dto: UpdateWalletDto,
-  ) {
-    return this.onchainService.updateWallet(id, dto);
+  async updateWallet(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateWalletDto) {
+    return this.onchainService.updateWallet(req.user.userId, id, dto);
   }
 
   /**
@@ -63,7 +62,7 @@ export class OnchainController {
    * Hard delete wallet
    */
   @Delete(':id')
-  async deleteWallet(@Param('id') id: string) {
-    return this.onchainService.deleteWallet(id);
+  async deleteWallet(@Req() req: any, @Param('id') id: string) {
+    return this.onchainService.deleteWallet(req.user.userId, id);
   }
 }

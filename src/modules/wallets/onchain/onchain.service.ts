@@ -8,7 +8,7 @@ export class OnchainService {
   constructor(
     private prisma: PrismaService,
     private suiService: SuiService,
-  ) {}
+  ) { }
 
   /**
    * UC2: Add Onchain Wallet (Multi-chain, SUI priority)
@@ -107,11 +107,11 @@ export class OnchainService {
   }
 
   /**
-   * Get wallet by ID
+   * Get wallet by ID (must belong to user)
    */
-  async getWallet(walletId: string) {
-    const wallet = await this.prisma.onchainWallet.findUnique({
-      where: { id: walletId },
+  async getWallet(userId: string, walletId: string) {
+    const wallet = await this.prisma.onchainWallet.findFirst({
+      where: { id: walletId, userId },
     });
 
     if (!wallet) {
@@ -124,8 +124,8 @@ export class OnchainService {
   /**
    * Query balance from blockchain RPC
    */
-  async getBalance(walletId: string) {
-    const wallet = await this.getWallet(walletId);
+  async getBalance(userId: string, walletId: string) {
+    const wallet = await this.getWallet(userId, walletId);
 
     // For now, only SUI is implemented
     if (wallet.chain.toLowerCase() === 'sui') {
@@ -138,7 +138,7 @@ export class OnchainService {
           balance,
           currency: 'SUI',
         };
-      } catch (error) {
+      } catch (error: any) {
         throw new BusinessException(
           'Failed to query balance from blockchain',
           'BALANCE_QUERY_FAILED',
@@ -160,10 +160,10 @@ export class OnchainService {
   }
 
   /**
-   * Update wallet label
+   * Update wallet label (must belong to user)
    */
-  async updateWallet(walletId: string, data: { label?: string }) {
-    const wallet = await this.getWallet(walletId);
+  async updateWallet(userId: string, walletId: string, data: { label?: string }) {
+    await this.getWallet(userId, walletId);
 
     const updated = await this.prisma.onchainWallet.update({
       where: { id: walletId },
@@ -178,10 +178,10 @@ export class OnchainService {
   }
 
   /**
-   * Delete Wallet (Hard Delete)
+   * Delete Wallet (Hard Delete) (must belong to user)
    */
-  async deleteWallet(walletId: string) {
-    const wallet = await this.getWallet(walletId);
+  async deleteWallet(userId: string, walletId: string) {
+    const wallet = await this.getWallet(userId, walletId);
 
     // Check if it's default wallet
     if (wallet.isDefault) {

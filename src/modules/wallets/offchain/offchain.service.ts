@@ -168,11 +168,11 @@ export class OffchainService {
   }
 
   /**
-   * Get bank by ID
+   * Get bank by ID (must belong to user)
    */
-  async getBank(bankId: string) {
-    const bank = await this.prisma.offchainWallet.findUnique({
-      where: { id: bankId },
+  async getBank(userId: string, bankId: string) {
+    const bank = await this.prisma.offchainWallet.findFirst({
+      where: { id: bankId, userId },
     });
 
     if (!bank) {
@@ -183,10 +183,10 @@ export class OffchainService {
   }
 
   /**
-   * Update bank info (label only for now)
+   * Update bank info (label only for now) (must belong to user)
    */
-  async updateBank(bankId: string, data: { label?: string }) {
-    await this.getBank(bankId);
+  async updateBank(userId: string, bankId: string, data: { label?: string }) {
+    await this.getBank(userId, bankId);
 
     const updated = await this.prisma.offchainWallet.update({
       where: { id: bankId },
@@ -201,10 +201,10 @@ export class OffchainService {
   }
 
   /**
-   * Delete bank (hard delete)
+   * Delete bank (hard delete) (must belong to user)
    */
-  async deleteBank(bankId: string) {
-    const bank = await this.getBank(bankId);
+  async deleteBank(userId: string, bankId: string) {
+    const bank = await this.getBank(userId, bankId);
 
     // Check if it's default bank
     if (bank.isDefault) {
