@@ -95,6 +95,10 @@ export class GaianService {
       );
       return response.data;
     } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 409) {
+        return { status: 'success', message: 'User already registered' };
+      }
       throw new Error(`Gaian registerUser failed: ${error.response?.data?.message || error.message}`);
     }
   }
