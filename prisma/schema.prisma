@@ -200,8 +200,15 @@ model PaymentTarget {
 model Order {
   id                      String             @id @default(cuid())
   gaianOrderId             String?            @unique
-  username                 String
+  username                 String?            // Optional - recipient may not be registered
   paymentTargetId          String?
+  
+  // Direct QR string for bank transfers (no PaymentTarget lookup needed)
+  qrString                 String?            @map("qr_string")
+  recipientBankName        String?            @map("recipient_bank_name")
+  recipientAccountNumber   String?            @map("recipient_account_number")
+  recipientAccountName     String?            @map("recipient_account_name")
+  
   payerWalletAddress       String
   partnerWalletAddress     String
   cryptoCurrency           String
@@ -231,7 +238,6 @@ model Order {
   paymentTarget PaymentTarget? @relation(fields: [paymentTargetId], references: [id])
 
   @@index([payerWalletAddress])
-  @@index([username])
   @@index([status])
   @@unique([payerWalletAddress, clientRequestId])
   @@map("orders")

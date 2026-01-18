@@ -170,25 +170,39 @@ export class UsersService {
       throw new NotFoundException(`User with username '${username}' not found`);
     }
 
-    // Find default wallet
-    const defaultWallet = user.onchainWallets[0] || user.offchainWallets[0] || null;
+    // Find default wallet - prioritize onchain, then offchain
+    const defaultOnchain = user.onchainWallets[0];
+    const defaultOffchain = user.offchainWallets[0];
+
+    let defaultWallet = null;
+    if (defaultOnchain) {
+      defaultWallet = {
+        id: defaultOnchain.id,
+        type: 'onchain' as const,
+        address: defaultOnchain.address,
+        chain: defaultOnchain.chain,
+      };
+    } else if (defaultOffchain) {
+      defaultWallet = {
+        id: defaultOffchain.id,
+        type: 'offchain' as const,
+        bankName: defaultOffchain.bankName,
+        accountNumber: defaultOffchain.accountNumber,
+        accountName: defaultOffchain.accountName,
+        qrString: defaultOffchain.qrString, // Include qrString for payment API
+      };
+    }
 
     return {
       userId: user.id,
       username: user.username,
+      walletAddress: user.walletAddress,
       kycStatus: user.kycStatus,
-      canReceiveTransfer: user.kycStatus === 'approved' || !!user.onchainWallets[0], // Onchain không cần KYC
-      defaultWallet: defaultWallet ? {
-        id: defaultWallet.id,
-        type: 'address' in defaultWallet ? 'onchain' : 'offchain',
-        address: 'address' in defaultWallet ? defaultWallet.address : null,
-        chain: 'chain' in defaultWallet ? defaultWallet.chain : null,
-        bankName: 'bankName' in defaultWallet ? defaultWallet.bankName : null,
-        accountNumber: 'accountNumber' in defaultWallet ? defaultWallet.accountNumber : null,
-      } : null,
+      canReceiveTransfer: user.kycStatus === 'approved' || !!defaultOnchain,
+      defaultWallet,
     };
   }
-async checkUsernameAvailability(username: string) {
+  async checkUsernameAvailability(username: string) {
     const clean = (username || '').trim().toLowerCase();
 
     if (clean.length < 3 || clean.length > 30) {

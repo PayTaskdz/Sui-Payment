@@ -18,8 +18,8 @@ class PaymentInstructionDto {
 }
 
 class PayoutDto {
-  @ApiProperty()
-  username: string;
+  @ApiProperty({ required: false })
+  username?: string;
 
   @ApiProperty()
   fiatCurrency: string;
