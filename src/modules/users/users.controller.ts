@@ -14,9 +14,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   /**
-   * GET /users/profile?userId=xxx
-   * Get user profile with wallets and KYC status
-   * TODO: Later replace with JWT @CurrentUser() decorator
+   * GET /users/profile
+   * Get user profile with wallets, KYC status, and loyalty tier info
    */
   @Get('profile')
   async getProfile(@Req() req: any) {
@@ -24,7 +23,7 @@ export class UsersController {
   }
 
   /**
-   * PATCH /users/profile?userId=xxx
+   * PATCH /users/profile
    * Update profile info (email, firstName, lastName)
    */
   @Patch('profile')
@@ -33,14 +32,22 @@ export class UsersController {
   }
 
   /**
-   * PATCH /users/profile/username?userId=xxx
-   * UC7: Change username (rate limit: 3 per 30 days)
+   * PATCH /users/profile/username
+   * UC7: Change username
    */
   @Patch('profile/username')
   async changeUsername(@Req() req: any, @Body() dto: ChangeUsernameDto) {
     return this.usersService.changeUsername(req.user.userId, dto.newUsername);
   }
+  
+    @Get('check-username')
+  async checkUsername(@Query('username') username: string) {
+    return this.usersService.checkUsernameAvailability(username);
+  }
 
+  @Post('onboarding')
+  async onboarding(@Req() req: any, @Body() dto: OnboardingDto) {
+    return this.usersService.completeOnboarding(req.user.userId, dto);
   /**
    * GET /users/lookup?username=xxx
    * Lookup user by username (for transfers)
@@ -50,6 +57,22 @@ export class UsersController {
     return this.usersService.getUserByUsername(username);
   }
 
+  /**
+   * GET /users/loyalty-stats
+   * Get detailed loyalty program statistics
+   */
+  @Get('loyalty-stats')
+  async getLoyaltyStats(@Req() req: any) {
+    return this.usersService.getLoyaltyStats(req.user.userId);
+  }
+
+  /**
+   * GET /users/referral-info
+   * Get referral program information and referee list
+   */
+  @Get('referral-info')
+  async getReferralInfo(@Req() req: any) {
+    return this.usersService.getReferralInfo(req.user.userId);
   @Get('check-username')
   async checkUsername(@Query('username') username: string) {
     return this.usersService.checkUsernameAvailability(username);

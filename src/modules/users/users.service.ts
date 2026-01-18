@@ -11,6 +11,205 @@ export class UsersService {
   ) { }
 
   /**
+   * Calculate loyalty tier based on points
+   */
+  calculateLoyaltyTier(points: number): string {
+    if (points >= this.config.TIER_ELITE_THRESHOLD) return 'Elite';
+    if (points >= this.config.TIER_PREMIUM_THRESHOLD) return 'Premium';
+    if (points >= this.config.TIER_PLUS_THRESHOLD) return 'Plus';
+    return 'Standard';
+  }
+
+  /**
+   * Get commission rate based on tier
+   */
+  getCommissionRateForTier(tier: string): number {
+    switch (tier) {
+      case 'Elite': return this.config.TIER_ELITE_COMMISSION;
+      case 'Premium': return this.config.TIER_PREMIUM_COMMISSION;
+      case 'Plus': return this.config.TIER_PLUS_COMMISSION;
+      default: return this.config.TIER_STANDARD_COMMISSION;
+    }
+  }
+
+  /**
+   * Calculate points needed to reach next tier
+   */
+  getPointsToNextTier(currentPoints: number): number | null {
+    if (currentPoints >= this.config.TIER_ELITE_THRESHOLD) return null;
+    if (currentPoints >= this.config.TIER_PREMIUM_THRESHOLD) {
+      return this.config.TIER_ELITE_THRESHOLD - currentPoints;
+    }
+    if (currentPoints >= this.config.TIER_PLUS_THRESHOLD) {
+      return this.config.TIER_PREMIUM_THRESHOLD - currentPoints;
+    }
+    return this.config.TIER_PLUS_THRESHOLD - currentPoints;
+  }
+
+  /**
+   * Count user's transactions in different time periods
+   */
+  async getTransactionCounts(username: string) {
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [dailyCount, weeklyCount, monthlyCount, totalCount] = await Promise.all([
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+          createdAt: { gte: oneDayAgo },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+          createdAt: { gte: sevenDaysAgo },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+          createdAt: { gte: thirtyDaysAgo },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+        },
+      }),
+    ]);
+
+    return { dailyCount, weeklyCount, monthlyCount, totalCount };
+  }
+
+  /**
+   * Count successful referrals (referees with at least 3 completed transactions)
+   */
+  async countSuccessfulReferrals(userId: string): Promise<number> {
+    const referees = await this.prisma.user.findMany({
+      where: { referrerId: userId },
+      select: { id: true, username: true },
+    });
+
+    let successfulCount = 0;
+    for (const referee of referees) {
+      const count = await this.prisma.order.count({
+        where: {
+          username: referee.username,
+          status: 'COMPLETED',
+        },
+      });
+      if (count >= 3) successfulCount++;
+    }
+
+    return successfulCount;
+  }
+
+  /**
+   * Calculate rewards for a completed order
+   * - Transaction volume points: $50+ → +10 points
+   * - Transaction frequency bonuses
+   * - Referral bonus: +50 points when referee hits 3rd transaction
+   * - Commission for referrer based on their tier
+   */
+  async calculateRewards(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order || order.status !== 'COMPLETED') return;
+
+    // Lookup user by username
+    const user = await this.prisma.user.findFirst({
+      where: { username: order.username },
+      include: { referrer: true },
+    });
+
+    if (!user) return;
+
+    let pointsToAdd = 0;
+
+    // --- 1. TRANSACTION VOLUME POINTS ---
+    // $50+ → +10 points
+    const usdcValue = Number(order.expectedCryptoAmountRaw || '0') / 1_000_000;
+    if (usdcValue >= 50) {
+      pointsToAdd += this.config.POINTS_OVER_50_USD;
+    }
+
+    // --- 2. TRANSACTION FREQUENCY BONUSES ---
+    const counts = await this.getTransactionCounts(user.username);
+    
+    // 3+ transactions/day → +50 points
+    if (counts.dailyCount >= 3) {
+      pointsToAdd += this.config.POINTS_DAILY_3_TX;
+    }
+    
+    // 15+ transactions/week → +100 points
+    if (counts.weeklyCount >= 15) {
+      pointsToAdd += this.config.POINTS_WEEKLY_15_TX;
+    }
+    
+    // 50+ transactions/month → +300 points
+    if (counts.monthlyCount >= 50) {
+      pointsToAdd += this.config.POINTS_MONTHLY_50_TX;
+    }
+
+    // Add points to user
+    if (pointsToAdd > 0) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { loyaltyPoints: { increment: pointsToAdd } },
+      });
+    }
+
+    // --- 3. REFERRAL BONUS FOR REFERRER ---
+    // When this user (F1/referee) completes their 3rd transaction,
+    // grant +50 points to their referrer (F0)
+    if (user.referrerId && counts.totalCount === 3) {
+      const referrer = await this.prisma.user.findUnique({
+        where: { id: user.referrerId },
+      });
+
+      if (referrer) {
+        // Check if referrer hasn't exceeded 500 points from referrals
+        // We estimate this by: successful referrals * 50 points
+        const successfulReferrals = await this.countSuccessfulReferrals(user.referrerId);
+        const estimatedReferralPoints = successfulReferrals * this.config.POINTS_REFERRAL_BONUS;
+
+        if (estimatedReferralPoints < this.config.MAX_REFERRAL_POINTS_PER_PERIOD) {
+          await this.prisma.user.update({
+            where: { id: user.referrerId },
+            data: { loyaltyPoints: { increment: this.config.POINTS_REFERRAL_BONUS } },
+          });
+        }
+      }
+    }
+
+    // --- 4. COMMISSION FOR REFERRER (based on referrer's tier) ---
+    if (user.referrer) {
+      const feeCollected = Number(order.hiddenWalletFeeAmount || 0);
+      
+      // Calculate referrer's tier based on their current points
+      const referrerTier = this.calculateLoyaltyTier(user.referrer.loyaltyPoints);
+      const commissionRate = this.getCommissionRateForTier(referrerTier);
+      const commission = feeCollected * commissionRate;
+
+      if (commission > 0) {
+        await this.prisma.user.update({
+          where: { id: user.referrer.id },
+          data: { commissionBalance: { increment: commission } },
+        });
+      }
+    }
+  }
+
+  /**
    * Get user profile with wallets and KYC status
    */
   async getProfile(userId: string) {
@@ -37,6 +236,14 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
+    // Calculate dynamic tier based on current points
+    const tier = this.calculateLoyaltyTier(user.loyaltyPoints);
+    const commissionRate = this.getCommissionRateForTier(tier);
+    const pointsToNextTier = this.getPointsToNextTier(user.loyaltyPoints);
+
+    // Get transaction counts
+    const transactionCounts = await this.getTransactionCounts(user.username);
+
     // Find default wallet
     const defaultOnchain = user.onchainWallets.find((w: any) => w.isDefault);
     const defaultOffchain = user.offchainWallets.find((w: any) => w.isDefault);
@@ -51,9 +258,28 @@ export class UsersService {
       kycStatus: user.kycStatus,
       canTransfer: user.kycStatus === 'approved',
       isActive: user.isActive,
-      refereesCount: user._count.referees,
+      
+      // Loyalty & Tier Info (calculated dynamically)
+      loyaltyTier: tier,
       loyaltyPoints: user.loyaltyPoints,
+      pointsToNextTier,
+      commissionRate,
+      
+      // Transaction Info
+      completedTransactionsCount: transactionCounts.totalCount,
+      transactionStats: {
+        dailyCount: transactionCounts.dailyCount,
+        weeklyCount: transactionCounts.weeklyCount,
+        monthlyCount: transactionCounts.monthlyCount,
+      },
+      
+      // Referral Info
+      refereesCount: user._count.referees,
+      
+      // Balances
       commissionBalance: user.commissionBalance,
+      
+      // Wallets
       defaultWallet: defaultOnchain || defaultOffchain || null,
       onchainWallets: user.onchainWallets,
       offchainWallets: user.offchainWallets.map((wallet: any) => ({
@@ -68,6 +294,7 @@ export class UsersService {
         isDefault: wallet.isDefault,
         label: wallet.label,
       })),
+      
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -106,11 +333,8 @@ export class UsersService {
 
   /**
    * UC7: Change Username
-   * Rate limit: 3 changes per 30 days
-   * NOTE: Rate limiting logic can be added later with Redis or DB tracking
    */
   async changeUsername(userId: string, newUsername: string) {
-    // 1. Check if user exists
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -119,7 +343,6 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    // 2. Check if new username is already taken
     const existingUser = await this.prisma.user.findUnique({
       where: { username: newUsername },
     });
@@ -132,11 +355,6 @@ export class UsersService {
       );
     }
 
-    // 3. TODO: Check rate limit (3 changes per 30 days)
-    // This can be implemented later with a separate table tracking username changes
-    // For now, we'll allow the change
-
-    // 4. Update username
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: { username: newUsername },
@@ -275,48 +493,87 @@ export class UsersService {
   }
 
   /**
-   * Calculate rewards for a completed order
-   * - F1 (user who made transaction): Earns loyalty points
-   * - F0 (referrer): Earns commission from F1's transaction fees
+   * Get loyalty stats for user
    */
-  async calculateRewards(orderId: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
+  async getLoyaltyStats(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const tier = this.calculateLoyaltyTier(user.loyaltyPoints);
+    const commissionRate = this.getCommissionRateForTier(tier);
+    const pointsToNextTier = this.getPointsToNextTier(user.loyaltyPoints);
+
+    const transactionCounts = await this.getTransactionCounts(user.username);
+    const successfulReferrals = await this.countSuccessfulReferrals(userId);
+    const estimatedReferralPoints = successfulReferrals * this.config.POINTS_REFERRAL_BONUS;
+
+    return {
+      currentTier: tier,
+      loyaltyPoints: user.loyaltyPoints,
+      pointsToNextTier,
+      commissionRate,
+      transactionStats: {
+        dailyCount: transactionCounts.dailyCount,
+        weeklyCount: transactionCounts.weeklyCount,
+        monthlyCount: transactionCounts.monthlyCount,
+      },
+      referralInfo: {
+        successfulReferrals,
+        estimatedPointsFromReferrals: estimatedReferralPoints,
+        maxReferralPoints: this.config.MAX_REFERRAL_POINTS_PER_PERIOD,
+        referralPointsRemaining: this.config.MAX_REFERRAL_POINTS_PER_PERIOD - estimatedReferralPoints,
+      },
+    };
+  }
+
+  /**
+   * Get referral info for user
+   */
+  async getReferralInfo(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        referees: {
+          select: {
+            id: true,
+            username: true,
+            createdAt: true,
+          },
+        },
+      },
     });
 
-    if (!order) return;
+    if (!user) throw new NotFoundException('User not found');
 
-    // Lookup user by username
-    const user = await this.prisma.user.findFirst({
-      where: { username: order.username },
-      include: { referrer: true },
-    });
+    const totalReferrals = user.referees.length;
 
-    if (!user) return;
-
-    // --- A. TÍNH POINT (F1) ---
-    // Rule: Có GaianID + Currency VN + Giá trị > 50$ (đổi từ raw)
-    const usdcValue = Number(order.expectedCryptoAmountRaw || '0') / 1_000_000;
-
-    if (order.gaianOrderId && order.fiatCurrency === 'VN' && usdcValue > 50) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { loyaltyPoints: { increment: usdcValue } }
-      });
-    }
-
-    // --- B. TÍNH COMMISSION (F0) ---
-    // Rule: 15% của Fee thu được (configurable via REFERRAL_COMMISSION_RATE)
-    if (user.referrer) {
-      const feeCollected = Number(order.hiddenWalletFeeAmount || 0);
-      const commission = feeCollected * this.config.referralCommissionRate;
-
-      if (commission > 0) {
-        await this.prisma.user.update({
-          where: { id: user.referrer.id },
-          data: { commissionBalance: { increment: commission } }
+    // Get transaction counts for each referee
+    const refereesWithStats = await Promise.all(
+      user.referees.map(async (referee) => {
+        const count = await this.prisma.order.count({
+          where: {
+            username: referee.username,
+            status: 'COMPLETED',
+          },
         });
-      }
-    }
+        return {
+          username: referee.username,
+          registeredAt: referee.createdAt,
+          transactionCount: count,
+          bonusGranted: count >= 3, // Bonus granted when referee hits 3 transactions
+        };
+      })
+    );
+
+    const successfulReferrals = refereesWithStats.filter(r => r.bonusGranted).length;
+    const estimatedReferralPoints = successfulReferrals * this.config.POINTS_REFERRAL_BONUS;
+
+    return {
+      totalReferrals,
+      successfulReferrals,
+      estimatedPointsFromReferrals: estimatedReferralPoints,
+      maxReferralPoints: this.config.MAX_REFERRAL_POINTS_PER_PERIOD,
+      referees: refereesWithStats,
+    };
   }
 }
