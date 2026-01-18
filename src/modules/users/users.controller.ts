@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangeUsernameDto } from './dto/change-username.dto';
+import { OnboardingDto } from './dto/onboarding.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('bearer')
@@ -72,5 +73,13 @@ export class UsersController {
   @Get('referral-info')
   async getReferralInfo(@Req() req: any) {
     return this.usersService.getReferralInfo(req.user.userId);
+  @Get('check-username')
+  async checkUsername(@Query('username') username: string) {
+    return this.usersService.checkUsernameAvailability(username);
+  }
+
+  @Post('onboarding')
+  async onboarding(@Req() req: any, @Body() dto: OnboardingDto) {
+    return this.usersService.completeOnboarding(req.user.userId, dto);
   }
 }

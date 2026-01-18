@@ -21,6 +21,8 @@ export class GaianService {
   private readonly userBaseUrl: string;
   private readonly paymentBaseUrl: string;
   private readonly apiKey: string;
+  private readonly qrBaseUrl: string;
+  private readonly qrApiKey: string;
   // Bank BIN to Bank Name mapping (common Vietnamese banks)
   private static readonly BANK_BIN_MAP: Record<string, string> = {
     '970436': 'Vietcombank',
@@ -71,6 +73,8 @@ export class GaianService {
     this.userBaseUrl = this.config.gaianUserBaseUrl;
     this.paymentBaseUrl = this.config.gaianPaymentBaseUrl;
     this.apiKey = this.config.gaianApiKey;
+    this.qrBaseUrl = this.config.gaianQrBaseUrl;
+    this.qrApiKey = this.config.gaianQrApiKey;
   }
 
   private static getBankNameFromBin(bankBin: string): string {
@@ -95,6 +99,10 @@ export class GaianService {
       );
       return response.data;
     } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 409) {
+        return { status: 'success', message: 'User already registered' };
+      }
       throw new Error(`Gaian registerUser failed: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -130,11 +138,11 @@ export class GaianService {
 
   async parseQr(qrString: string) {
     try {
-        const response = await fetch(`${this.paymentBaseUrl}/api/v1/parseQr`, {
+        const response = await fetch(`${this.qrBaseUrl}/api/v1/parseQr`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'x-api-key': this.apiKey,
+                'x-api-key': this.qrApiKey,
             },
             body: JSON.stringify({
                 qrString: qrString,

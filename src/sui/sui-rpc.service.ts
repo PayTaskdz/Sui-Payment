@@ -84,21 +84,30 @@ export class SuiRpcService {
 
     throw new Error('SUI_EPOCH_NOT_FOUND');
   }
-  async getTransaction(txDigest: string): Promise<SuiTransactionBlock | null> {
-    try {
-      return await this.rpc<SuiTransactionBlock>('sui_getTransactionBlock', [
-        txDigest,
-        {
-          showInput: false,
-          showEffects: true,
-          showEvents: false,
-          showObjectChanges: false,
-          showBalanceChanges: true,
-        },
-      ]);
-    } catch {
-      return null;
+  async getTransaction(txDigest: string, retries = 5, delayMs = 2000): Promise<SuiTransactionBlock | null> {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const result = await this.rpc<SuiTransactionBlock>('sui_getTransactionBlock', [
+          txDigest,
+          {
+            showInput: false,
+            showEffects: true,
+            showEvents: false,
+            showObjectChanges: false,
+            showBalanceChanges: true,
+          },
+        ]);
+        if (result) return result;
+      } catch {
+        // Transaction might not be indexed yet
+      }
+
+      // Wait before retrying (except on last attempt)
+      if (attempt < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    return null;
   }
 
   private static normalizeSuiAddress(address: string) {

@@ -67,22 +67,30 @@ export class AuthService {
     statement?: string;
   }) {
     const lines = [
-      `domain: ${args.domain}`,
-      `address: ${args.address}`,
-      `nonce: ${args.nonce}`,
-      `issuedAt: ${args.issuedAt}`,
-      `expirationTime: ${args.expirationTime}`,
+      `Sign in to ${args.domain}`,
+      '',
+      `Address: ${args.address}`,
+      `Nonce: ${args.nonce}`,
+      `Issued At: ${args.issuedAt}`,
+      `Expiration Time: ${args.expirationTime}`,
     ];
-    if (args.statement) lines.push(`statement: ${args.statement}`);
+    if (args.statement) {
+      lines.push('', args.statement);
+    }
     return lines.join('\n');
   }
 
   async verifyAndIssueToken(dto: VerifyDto) {
     const address = normalizeSuiAddress(dto.address);
 
-    const user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
+    let user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
     if (!user) {
-      throw new BadRequestException('USER_NOT_FOUND');
+      user = await this.prisma.user.create({
+        data: {
+          walletAddress: address,
+          username: null,
+        },
+      });
     }
 
     const nonceRow = await this.prisma.authNonce.findFirst({
@@ -106,7 +114,7 @@ export class AuthService {
     }
 
     const expectedMessage = this.buildExpectedMessage({
-      domain: this.domain,
+      domain: dto.domain ?? this.domain,
       address,
       nonce: dto.nonce,
       issuedAt: dto.issuedAt,
@@ -173,6 +181,7 @@ export class AuthService {
     return {
       accessToken: token,
       tokenType: 'Bearer',
+      needsOnboarding: !user.username,
     };
   }
 

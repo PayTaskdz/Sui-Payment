@@ -18,7 +18,7 @@ export class OffchainController {
    */
   @Post('add')
   async addBank(@Req() req: any, @Body() dto: ScanQrDto) {
-    return this.offchainService.scanQr(req.user.userId, dto.qrString, dto.label);
+    return this.offchainService.addFromQr(req.user.userId, dto.qrString, dto.label);
   }
 
   /**

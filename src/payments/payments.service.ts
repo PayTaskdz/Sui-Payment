@@ -54,14 +54,13 @@ export class PaymentsService {
   }
 
   async createOrder(dto: CreateOrderDto): Promise<CreateOrderResponseDto> {
-    const target = await this.prisma.paymentTarget.findUnique({
-      where: { username: dto.username },
-    });
+    // Defaults
+    const fiatCurrency = dto.fiatCurrency || 'VND';
+    const country = dto.country || 'VN';
+    const cryptoCurrency = 'USDC';
+    const token = 'USDC';
 
-    if (!target || !target.isActive) {
-      throw new NotFoundException('USERNAME_NOT_FOUND');
-    }
-
+    // Config
     const partnerWalletAddress = this.configService.get<string>('PARTNER_SUI_ADDRESS');
     if (!partnerWalletAddress) {
       throw new BadRequestException('PARTNER_SUI_ADDRESS_NOT_CONFIGURED');
@@ -80,6 +79,7 @@ export class PaymentsService {
       throw new BadRequestException('INVALID_HIDDEN_WALLET_FEE_PERCENT');
     }
 
+    // Idempotency check
     if (dto.clientRequestId) {
       const existing = await this.prisma.order.findUnique({
         where: {
@@ -112,23 +112,42 @@ export class PaymentsService {
           paymentInstruction: {
             toAddress: existing.partnerWalletAddress,
             coinType: existing.coinType,
-            totalCrypto: (Number(existing.expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(4),
+            totalCrypto: (Number(existing.expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(usdcDecimals),
             totalCryptoRaw: existing.expectedCryptoAmountRaw,
             totalPayout: Number(existing.fiatAmount),
           },
           payout: {
-            username: target.username,
-            fiatCurrency: target.fiatCurrency,
+            fiatCurrency: existing.fiatCurrency,
           },
         };
       }
     }
 
-    const exchangeResp = await this.gaian.calculateExchange({
-      amount: dto.amount,
-      country: dto.country,
+    // Step 1: Get exchange rate by probing with a sample fiat amount
+    const probeFiatAmount = fiatCurrency === 'PHP' ? 100 : 100000; // 100 PHP or 100k VND
+    const probeResp = await this.gaian.calculateExchange({
+      amount: probeFiatAmount,
+      country,
       chain: 'Solana',
-      token: dto.token,
+      token,
+    });
+
+    if (!probeResp?.success || !probeResp?.exchangeInfo?.exchangeRate) {
+      throw new BadRequestException('GAIAN_CALCULATE_EXCHANGE_FAILED');
+    }
+
+    const exchangeRate = Number(probeResp.exchangeInfo.exchangeRate);
+
+    // Step 2: Convert USDC amount to fiat amount
+    // exchangeRate = fiat per 1 USDC (e.g., 25500 VND per 1 USDC)
+    const fiatAmount = Math.round(dto.usdcAmount * exchangeRate);
+
+    // Step 3: Calculate the actual USDC amount after Gaian fees
+    const exchangeResp = await this.gaian.calculateExchange({
+      amount: fiatAmount,
+      country,
+      chain: 'Solana',
+      token,
     });
 
     if (!exchangeResp?.success || !exchangeResp?.exchangeInfo?.cryptoAmount) {
@@ -142,31 +161,27 @@ export class PaymentsService {
 
     const gaianExpected = Number(gaianExpectedCryptoAmountRaw);
 
+    // Step 4: Add HiddenWallet fee on top of what Gaian expects
     const expectedCryptoAmountRaw = String(
       Math.ceil(gaianExpected / (1 - feeRate)),
     );
 
     const hiddenWalletFeeAmountRaw = Math.max(0, Number(expectedCryptoAmountRaw) - gaianExpected);
-
     const hiddenWalletFeeAmount = hiddenWalletFeeAmountRaw / Math.pow(10, usdcDecimals);
 
-    const exchangeRate = exchangeResp.exchangeInfo.exchangeRate
-      ? Number(exchangeResp.exchangeInfo.exchangeRate)
-      : undefined;
-
+    // Create order with qrString directly
     const order = await this.prisma.order.create({
       data: {
-        username: dto.username,
-        paymentTargetId: target.id,
+        qrString: dto.qrString,
         payerWalletAddress: dto.payerWalletAddress,
         partnerWalletAddress,
-        cryptoCurrency: dto.cryptoCurrency,
+        cryptoCurrency,
         coinType,
         expectedCryptoAmountRaw,
-        fiatAmount: dto.amount,
-        fiatCurrency: dto.fiatCurrency,
+        fiatAmount,
+        fiatCurrency,
         hiddenWalletFeeRate: feeRate,
-        hiddenWalletFeeAmount: hiddenWalletFeeAmount,
+        hiddenWalletFeeAmount,
         exchangeRate,
         gaianRaw: exchangeResp,
         clientRequestId: dto.clientRequestId,
@@ -187,13 +202,12 @@ export class PaymentsService {
       paymentInstruction: {
         toAddress: partnerWalletAddress,
         coinType,
-        totalCrypto: (Number(expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(4),
+        totalCrypto: (Number(expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(usdcDecimals),
         totalCryptoRaw: expectedCryptoAmountRaw,
-        totalPayout: dto.amount,
+        totalPayout: fiatAmount,
       },
       payout: {
-        username: target.username,
-        fiatCurrency: target.fiatCurrency,
+        fiatCurrency,
       },
     };
   }
@@ -201,9 +215,9 @@ export class PaymentsService {
 
 
   async confirmUserPayment(orderId: string, dto: ConfirmUserPaymentDto): Promise<OrderResponseDto> {
-    // Start a transaction to handle both verification and Gaian call atomically
+    // Start a transaction with extended timeout (getTransaction retry can take up to 10s)
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // 1. Get the order with pessimistic locking to prevent concurrent updates
+      // 1. Get the order
       const order = await tx.order.findUnique({
         where: { id: orderId },
         include: { paymentTarget: true },
@@ -218,13 +232,15 @@ export class PaymentsService {
         return this.toOrderResponse(order);
       }
 
-      if (!order.paymentTarget) {
-        throw new BadRequestException('PAYMENT_TARGET_NOT_FOUND');
+      // 3. Validate qrString exists (either from order directly or from paymentTarget)
+      const qrString = order.qrString || order.paymentTarget?.qrString;
+      if (!qrString) {
+        throw new BadRequestException('QR_STRING_NOT_FOUND');
       }
 
       let updatedOrder = order;
 
-      // 3. Handle on-chain verification if needed
+      // 4. Handle on-chain verification if needed
       if (order.status === 'AWAITING_USER_PAYMENT') {
         const verify = await this.suiRpc.verifyTransfer(
           dto.userPaymentTxDigest,
@@ -249,7 +265,7 @@ export class PaymentsService {
         });
       }
 
-      // 4. If we're in a state to call Gaian, do it now
+      // 5. If we're in a state to call Gaian, do it now
       if ((updatedOrder.status as any) === 'USER_PAYMENT_VERIFIED' || (updatedOrder.status as any) === 'CONFIRMING_GAIAN_PAYMENT') {
         try {
           // Mark as processing to prevent duplicate calls
@@ -258,9 +274,9 @@ export class PaymentsService {
             data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
           });
 
-          // Call Gaian
+          // Call Gaian with qrString from order (or fallback to paymentTarget)
           const gaianResp = await this.gaian.placeOrderPrefund({
-            qrString: updatedOrder.paymentTarget!.qrString,
+            qrString,
             amount: Number(updatedOrder.fiatAmount),
             fiatCurrency: updatedOrder.fiatCurrency,
             cryptoCurrency: updatedOrder.cryptoCurrency,
@@ -293,8 +309,11 @@ export class PaymentsService {
         }
       }
 
-      // 5. If we get here, either we didn't need to do anything or everything succeeded
+      // 6. If we get here, either we didn't need to do anything or everything succeeded
       return this.toOrderResponse(updatedOrder);
+    }, {
+      timeout: 30000, // 30 seconds for blockchain verification retry
+      maxWait: 60000, // 60 seconds max wait to acquire transaction
     });
   }
 

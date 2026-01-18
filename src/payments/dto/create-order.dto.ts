@@ -1,50 +1,32 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateOrderDto {
-  @ApiProperty({ example: 'alice' })
+  @ApiProperty({ example: '00020101021138...', description: 'Bank QR string for Gaian payout' })
   @IsString()
-  username: string;
+  qrString: string;
 
-  @ApiProperty({ example: 60000, description: 'Fiat amount to payout' })
+  @ApiProperty({ example: 10, description: 'USDC amount to send (will be converted to fiat for payout)' })
   @IsNumber()
-  @Min(1)
-  amount: number;
+  @Min(0.01)
+  usdcAmount: number;
 
-  @ApiProperty({ example: 'VND', enum: ['VND', 'PHP'] })
-  @IsString()
-  @IsIn(['VND', 'PHP'])
-  fiatCurrency: string;
-
-  @ApiProperty({ example: 'USDC', description: 'Stablecoin user will transfer to partner wallet' })
-  @IsString()
-  cryptoCurrency: string;
-
-  @ApiProperty({ example: 'VN', description: 'Country fiat for exchange calculation (e.g., VN, PH)' })
-  @IsString()
-  country: string;
-
-  
-
-  @ApiProperty({
-    example: 'USDC',
-    description: 'Token symbol/name used by Gaian calculateExchange endpoint',
-  })
-  @IsString()
-  token: string;
-
-  @ApiProperty({ example: '0x1234...abcd', description: 'User Sui wallet address (payer)' })
+  @ApiProperty({ example: '0x1234...abcd', description: 'Payer Sui wallet address' })
   @IsString()
   payerWalletAddress: string;
 
-  @ApiPropertyOptional({ example: '3e2c3f8d-8c7c-4f2f-9f1c-4a2f52d0a8b1' })
+  @ApiPropertyOptional({ example: 'VND', description: 'Fiat currency (default: VND)' })
+  @IsOptional()
+  @IsString()
+  fiatCurrency?: string;
+
+  @ApiPropertyOptional({ example: 'VN', description: 'Country code for exchange (default: VN)' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @ApiPropertyOptional({ example: 'unique-request-id', description: 'Idempotency key' })
   @IsOptional()
   @IsString()
   clientRequestId?: string;
-
-  @ApiPropertyOptional({ example: 'invoice_0001' })
-  @IsOptional()
-  @IsString()
-  transactionReference?: string;
 }
-

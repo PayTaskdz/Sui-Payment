@@ -388,21 +388,107 @@ export class UsersService {
       throw new NotFoundException(`User with username '${username}' not found`);
     }
 
-    const defaultWallet = user.onchainWallets[0] || user.offchainWallets[0] || null;
+    // Find default wallet - prioritize onchain, then offchain
+    const defaultOnchain = user.onchainWallets[0];
+    const defaultOffchain = user.offchainWallets[0];
+
+    let defaultWallet = null;
+    if (defaultOnchain) {
+      defaultWallet = {
+        id: defaultOnchain.id,
+        type: 'onchain' as const,
+        address: defaultOnchain.address,
+        chain: defaultOnchain.chain,
+      };
+    } else if (defaultOffchain) {
+      defaultWallet = {
+        id: defaultOffchain.id,
+        type: 'offchain' as const,
+        bankName: defaultOffchain.bankName,
+        accountNumber: defaultOffchain.accountNumber,
+        accountName: defaultOffchain.accountName,
+        qrString: defaultOffchain.qrString, // Include qrString for payment API
+      };
+    }
 
     return {
       userId: user.id,
       username: user.username,
+      walletAddress: user.walletAddress,
       kycStatus: user.kycStatus,
-      canReceiveTransfer: user.kycStatus === 'approved' || !!user.onchainWallets[0],
-      defaultWallet: defaultWallet ? {
-        id: defaultWallet.id,
-        type: 'address' in defaultWallet ? 'onchain' : 'offchain',
-        address: 'address' in defaultWallet ? defaultWallet.address : null,
-        chain: 'chain' in defaultWallet ? defaultWallet.chain : null,
-        bankName: 'bankName' in defaultWallet ? defaultWallet.bankName : null,
-        accountNumber: 'accountNumber' in defaultWallet ? defaultWallet.accountNumber : null,
-      } : null,
+      canReceiveTransfer: user.kycStatus === 'approved' || !!defaultOnchain,
+      defaultWallet,
+    };
+  }
+  async checkUsernameAvailability(username: string) {
+    const clean = (username || '').trim().toLowerCase();
+
+    if (clean.length < 3 || clean.length > 30) {
+      return { available: false };
+    }
+
+    if (!/^[a-z0-9_]+$/.test(clean)) {
+      return { available: false };
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { username: clean },
+      select: { id: true },
+    });
+
+    return { available: !existing };
+  }
+
+  async completeOnboarding(
+    userId: string,
+    dto: { username: string; email?: string; referralUsername?: string },
+  ) {
+    const username = dto.username.trim().toLowerCase();
+
+    if (username.length < 3 || username.length > 30 || !/^[a-z0-9_]+$/.test(username)) {
+      throw new BusinessException('Invalid username', 'USERNAME_INVALID', 400);
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const existing = await this.prisma.user.findUnique({ where: { username } });
+    if (existing && existing.id !== userId) {
+      throw new BusinessException('Username already taken', 'USERNAME_TAKEN', 409);
+    }
+
+    let referrerId: string | null = null;
+    if (dto.referralUsername) {
+      const referralUsername = dto.referralUsername.trim().toLowerCase();
+      if (!/^[a-z0-9_]+$/.test(referralUsername)) {
+        throw new BusinessException('Invalid referral username', 'REFERRAL_USERNAME_INVALID', 400);
+      }
+
+      const referrer = await this.prisma.user.findUnique({ where: { username: referralUsername } });
+      if (!referrer) {
+        throw new BusinessException('Referrer not found', 'REFERRER_NOT_FOUND', 404);
+      }
+      if (referrer.id === userId) {
+        throw new BusinessException('Cannot refer yourself', 'REFERRER_SELF', 400);
+      }
+      referrerId = referrer.id;
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        username,
+        email: dto.email ?? user.email,
+        referrerId: referrerId ?? user.referrerId,
+      },
+    });
+
+    return {
+      userId: updated.id,
+      username: updated.username,
+      email: updated.email,
+      referrerId: updated.referrerId,
+      updatedAt: updated.updatedAt,
     };
   }
 
