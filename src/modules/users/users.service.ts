@@ -143,7 +143,7 @@ export class UsersService {
     }
 
     // --- 2. TRANSACTION FREQUENCY BONUSES ---
-    const counts = await this.getTransactionCounts(user.username);
+    const counts = await this.getTransactionCounts(user.username || '');
     
     // 3+ transactions/day → +50 points
     if (counts.dailyCount >= 3) {
@@ -248,7 +248,7 @@ export class UsersService {
     const pointsToNextTier = this.getPointsToNextTier(user.loyaltyPoints);
 
     // Get transaction counts
-    const transactionCounts = await this.getTransactionCounts(user.username);
+    const counts = await this.getTransactionCounts(user.username || '');
 
     // Find default wallet
     const defaultOnchain = user.onchainWallets.find((w: any) => w.isDefault);
@@ -509,7 +509,7 @@ export class UsersService {
     const commissionRate = this.getCommissionRateForTier(tier);
     const pointsToNextTier = this.getPointsToNextTier(user.loyaltyPoints);
 
-    const transactionCounts = await this.getTransactionCounts(user.username);
+    const counts = await this.getTransactionCounts(user.username || '');
     const successfulReferrals = await this.countSuccessfulReferrals(userId);
     const estimatedReferralPoints = successfulReferrals * this.config.POINTS_REFERRAL_BONUS;
 
