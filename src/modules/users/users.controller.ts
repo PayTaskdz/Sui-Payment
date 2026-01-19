@@ -40,14 +40,24 @@ export class UsersController {
     return this.usersService.changeUsername(req.user.userId, dto.newUsername);
   }
   
-    @Get('check-username')
+  /**
+   * GET /users/check-username?username=xxx
+   * Check if username is available
+   */
+  @Get('check-username')
   async checkUsername(@Query('username') username: string) {
     return this.usersService.checkUsernameAvailability(username);
   }
 
+  /**
+   * POST /users/onboarding
+   * Complete user onboarding process
+   */
   @Post('onboarding')
   async onboarding(@Req() req: any, @Body() dto: OnboardingDto) {
     return this.usersService.completeOnboarding(req.user.userId, dto);
+  }
+
   /**
    * GET /users/lookup?username=xxx
    * Lookup user by username (for transfers)
@@ -73,13 +83,5 @@ export class UsersController {
   @Get('referral-info')
   async getReferralInfo(@Req() req: any) {
     return this.usersService.getReferralInfo(req.user.userId);
-  @Get('check-username')
-  async checkUsername(@Query('username') username: string) {
-    return this.usersService.checkUsernameAvailability(username);
-  }
-
-  @Post('onboarding')
-  async onboarding(@Req() req: any, @Body() dto: OnboardingDto) {
-    return this.usersService.completeOnboarding(req.user.userId, dto);
   }
 }
