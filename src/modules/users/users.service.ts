@@ -272,11 +272,11 @@ export class UsersService {
       commissionRate,
       
       // Transaction Info
-      completedTransactionsCount: transactionCounts.totalCount,
+      completedTransactionsCount: counts.totalCount,
       transactionStats: {
-        dailyCount: transactionCounts.dailyCount,
-        weeklyCount: transactionCounts.weeklyCount,
-        monthlyCount: transactionCounts.monthlyCount,
+        dailyCount: counts.dailyCount,
+        weeklyCount: counts.weeklyCount,
+        monthlyCount: counts.monthlyCount,
       },
       
       // Referral Info
@@ -519,9 +519,9 @@ export class UsersService {
       pointsToNextTier,
       commissionRate,
       transactionStats: {
-        dailyCount: transactionCounts.dailyCount,
-        weeklyCount: transactionCounts.weeklyCount,
-        monthlyCount: transactionCounts.monthlyCount,
+        dailyCount: counts.dailyCount,
+        weeklyCount: counts.weeklyCount,
+        monthlyCount: counts.monthlyCount,
       },
       referralInfo: {
         successfulReferrals,
