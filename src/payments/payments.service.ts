@@ -131,6 +131,7 @@ private static rawToDecimal(raw: string, decimals: number): number {
       // Non-KYC rules: only allow if recipient is VN
       if (!isVn) throw new BadRequestException('KYC_REQUIRED');
 
+      if (usdc < 0.7) throw new BadRequestException('MIN_AMOUNT_PER_TX_EXCEEDED');
       if (usdc >= 4) throw new BadRequestException('NON_KYC_MAX_AMOUNT_PER_TX_EXCEEDED');
 
       const userDaySum = await this.sumCompletedUsdcForUserInVnDay({
