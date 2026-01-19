@@ -25,6 +25,14 @@ export class CreateOrderDto {
   @IsString()
   country?: string;
 
+  @ApiPropertyOptional({
+    example: 'VN',
+    description: 'Recipient country from /transfer/scan bankInfo.country (used for KYC/threshold rules)',
+  })
+  @IsOptional()
+  @IsString()
+  recipientCountry?: string;
+
   @ApiPropertyOptional({ example: 'unique-request-id', description: 'Idempotency key' })
   @IsOptional()
   @IsString()

@@ -39,6 +39,111 @@ export class PaymentsService {
     }
     return pct / 100;
   }
+private static rawToDecimal(raw: string, decimals: number): number {
+    if (!isRawIntString(raw)) throw new BadRequestException('INVALID_RAW_AMOUNT');
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new BadRequestException('INVALID_RAW_AMOUNT');
+    return n / Math.pow(10, decimals);
+  }
+
+  private static getVnDayWindow(now = new Date()): { start: Date; end: Date } {
+    // VN timezone is UTC+7
+    const vnNowMs = now.getTime() + 7 * 60 * 60 * 1000;
+    const vnNow = new Date(vnNowMs);
+    const startVn = new Date(vnNow);
+    startVn.setUTCHours(0, 0, 0, 0);
+    const startUtcMs = startVn.getTime() - 7 * 60 * 60 * 1000;
+    return { start: new Date(startUtcMs), end: now };
+  }
+
+  private async sumCompletedUsdcForUserInVnDay(args: { payerWalletAddress: string; usdcDecimals: number }): Promise<number> {
+    const { start, end } = PaymentsService.getVnDayWindow();
+
+    const rows = await this.prisma.order.findMany({
+      where: {
+        payerWalletAddress: args.payerWalletAddress,
+        bankTransferStatus: 'COMPLETED',
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      },
+      select: { expectedCryptoAmountRaw: true },
+    });
+
+    return rows.reduce((sum, r) => sum + PaymentsService.rawToDecimal(r.expectedCryptoAmountRaw, args.usdcDecimals), 0);
+  }
+
+  private async sumCompletedNonKycUsdcGlobalInVnDay(args: { usdcDecimals: number }): Promise<number> {
+    const { start, end } = PaymentsService.getVnDayWindow();
+
+    const nonKycWallets = await this.prisma.user.findMany({
+      where: {
+        kycStatus: { not: 'approved' },
+      },
+      select: { walletAddress: true },
+    });
+
+    const walletAddresses = nonKycWallets.map(w => w.walletAddress).filter(Boolean);
+    if (walletAddresses.length === 0) return 0;
+
+    const rows = await this.prisma.order.findMany({
+      where: {
+        payerWalletAddress: { in: walletAddresses },
+        bankTransferStatus: 'COMPLETED',
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      },
+      select: { expectedCryptoAmountRaw: true },
+    });
+
+    return rows.reduce((sum, r) => sum + PaymentsService.rawToDecimal(r.expectedCryptoAmountRaw, args.usdcDecimals), 0);
+  }
+
+  private enforceThresholds(args: {
+    usdcAmount: number;
+    kycApproved: boolean;
+    recipientCountry?: string;
+    payerWalletAddress: string;
+    usdcDecimals: number;
+  }) {
+    return (async () => {
+      const usdc = args.usdcAmount;
+
+      const isVn = (args.recipientCountry ?? '').toUpperCase() === 'VN';
+
+      // KYC-ed user thresholds
+      if (args.kycApproved) {
+        if (usdc < 0.7) throw new BadRequestException('MIN_AMOUNT_PER_TX_EXCEEDED');
+        if (usdc > 500) throw new BadRequestException('MAX_AMOUNT_PER_TX_EXCEEDED');
+
+        const daySum = await this.sumCompletedUsdcForUserInVnDay({
+          payerWalletAddress: args.payerWalletAddress,
+          usdcDecimals: args.usdcDecimals,
+        });
+
+        if (daySum + usdc > 5000) throw new BadRequestException('MAX_AMOUNT_PER_DAY_EXCEEDED');
+        return;
+      }
+
+      // Non-KYC rules: only allow if recipient is VN
+      if (!isVn) throw new BadRequestException('KYC_REQUIRED');
+
+      if (usdc >= 4) throw new BadRequestException('NON_KYC_MAX_AMOUNT_PER_TX_EXCEEDED');
+
+      const userDaySum = await this.sumCompletedUsdcForUserInVnDay({
+        payerWalletAddress: args.payerWalletAddress,
+        usdcDecimals: args.usdcDecimals,
+      });
+
+      if (userDaySum + usdc > 20) throw new BadRequestException('NON_KYC_MAX_AMOUNT_PER_DAY_EXCEEDED');
+
+      const globalNonKycSum = await this.sumCompletedNonKycUsdcGlobalInVnDay({ usdcDecimals: args.usdcDecimals });
+      if (globalNonKycSum + usdc > 4000) throw new BadRequestException('TENANT_NON_KYC_MAX_AMOUNT_PER_DAY_EXCEEDED');
+    })();
+  }
 
   private toOrderResponse(order: any): OrderResponseDto {
     return {
@@ -82,7 +187,25 @@ export class PaymentsService {
   async createOrder(dto: CreateOrderDto): Promise<CreateOrderResponseDto> {
     // Defaults
     const fiatCurrency = dto.fiatCurrency || 'VND';
+// Payer
+    const payer = await this.prisma.user.findFirst({
+      where: { walletAddress: dto.payerWalletAddress },
+    });
+    if (!payer) {
+      throw new NotFoundException('PAYER_NOT_FOUND');
+    }
+
     const country = dto.country || 'VN';
+
+    // Thresholds
+    const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
+    await this.enforceThresholds({
+      usdcAmount: dto.usdcAmount,
+      kycApproved: payer.kycStatus === 'approved',
+      recipientCountry: dto.recipientCountry,
+      payerWalletAddress: dto.payerWalletAddress,
+      usdcDecimals,
+    });
     const cryptoCurrency = 'USDC';
     const token = 'USDC';
 
@@ -96,10 +219,6 @@ export class PaymentsService {
     if (!coinType) {
       throw new BadRequestException('SUI_USDC_COIN_TYPE_NOT_CONFIGURED');
     }
-
-
-    const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
-
 
 
     // Idempotency check
