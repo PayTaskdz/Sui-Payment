@@ -332,7 +332,7 @@ export class PaymentsService {
       // 6. If we get here, either we didn't need to do anything or everything succeeded
       return this.toOrderResponse(updatedOrder);
     }, {
-      timeout: 30000, // 30 seconds for blockchain verification retry
+      timeout: 60000, // 60 seconds for blockchain verification retry
       maxWait: 60000, // 60 seconds max wait to acquire transaction
     });
   }
