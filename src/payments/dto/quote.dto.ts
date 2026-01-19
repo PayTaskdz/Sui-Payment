@@ -41,6 +41,5 @@ export class QuoteDto {
   @IsString()
   @IsNotEmpty()
   token: string;
-
-  }
+}
 

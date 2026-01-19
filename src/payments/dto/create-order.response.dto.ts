@@ -37,14 +37,14 @@ export class CreateOrderResponseDto {
 
   @ApiProperty({
     required: false,
-    description: 'HiddenWallet markup fee applied on top of payout fiat amount',
+    description: 'Fixed payout fee deducted from fiat payout (USDC unchanged)',
   })
-  hiddenWallet?: {
+  loyaltyFeeDiscount?: {
     feePercent: string;
     feeRate: number;
     feeAmount: number;
-    amountBeforeFee: number;
-    amountWithFee: number;
+    baseFiatAmount: number;
+    finalFiatAmount: number;
   };
 
   @ApiProperty({ type: PaymentInstructionDto })

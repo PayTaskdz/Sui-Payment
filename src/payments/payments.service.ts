@@ -19,6 +19,27 @@ export class PaymentsService {
     private readonly suiRpc: SuiRpcService,
   ) { }
 
+  private getLoyaltyTier(points: number): 'STANDARD' | 'PLUS' | 'PREMIUM' | 'ELITE' {
+    const elite = this.configService.get<number>('TIER_ELITE_THRESHOLD', 1150);
+    const premium = this.configService.get<number>('TIER_PREMIUM_THRESHOLD', 700);
+    const plus = this.configService.get<number>('TIER_PLUS_THRESHOLD', 300);
+
+    if (points >= elite) return 'ELITE';
+    if (points >= premium) return 'PREMIUM';
+    if (points >= plus) return 'PLUS';
+    return 'STANDARD';
+  }
+
+  private getPayoutFeeRate(): number {
+    // Percent expressed in env (e.g. 2 means 2%)
+    const raw = this.configService.get<string>('PAYOUT_FEE_PERCENT') ?? '2';
+    const pct = Number(raw);
+    if (!Number.isFinite(pct) || pct < 0) {
+      throw new BadRequestException('INVALID_PAYOUT_FEE_PERCENT');
+    }
+    return pct / 100;
+  }
+
   private toOrderResponse(order: any): OrderResponseDto {
     return {
       id: order.id,
@@ -73,11 +94,7 @@ export class PaymentsService {
 
     const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
 
-    const feePercentStr = this.configService.get<string>('HIDDEN_WALLET_FEE_PERCENT') ?? '0.2';
-    const feeRate = Number(feePercentStr) / 100;
-    if (!Number.isFinite(feeRate) || feeRate < 0) {
-      throw new BadRequestException('INVALID_HIDDEN_WALLET_FEE_PERCENT');
-    }
+
 
     // Idempotency check
     if (dto.clientRequestId) {
@@ -91,30 +108,28 @@ export class PaymentsService {
       });
 
       if (existing) {
-        const existingFeeRate = existing.hiddenWalletFeeRate ? Number(existing.hiddenWalletFeeRate) : feeRate;
-        const existingFeePercent = String(existingFeeRate * 100);
-
-        const baseCryptoAmountRaw = existing.hiddenWalletFeeAmount
-          ? String(Number(existing.expectedCryptoAmountRaw) - Number(existing.hiddenWalletFeeAmount))
-          : existing.expectedCryptoAmountRaw;
+        const payoutFeeRate = this.getPayoutFeeRate();
+        const baseFiatAmount = Number(existing.fiatAmount);
+        const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
+        const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
 
         return {
           id: existing.id,
           status: existing.status,
           exchangeInfo: (existing.gaianRaw as any)?.exchangeInfo ?? null,
-          hiddenWallet: {
-            feePercent: existingFeePercent,
-            feeRate: existingFeeRate,
-            feeAmount: existing.hiddenWalletFeeAmount ? Number(existing.hiddenWalletFeeAmount) : 0,
-            amountBeforeFee: Number(baseCryptoAmountRaw),
-            amountWithFee: Number(existing.expectedCryptoAmountRaw),
+          loyaltyFeeDiscount: {
+            feePercent: String(payoutFeeRate * 100),
+            feeRate: payoutFeeRate,
+            feeAmount: feeFiatAmount,
+            baseFiatAmount,
+            finalFiatAmount,
           },
           paymentInstruction: {
             toAddress: existing.partnerWalletAddress,
             coinType: existing.coinType,
             totalCrypto: (Number(existing.expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(usdcDecimals),
             totalCryptoRaw: existing.expectedCryptoAmountRaw,
-            totalPayout: Number(existing.fiatAmount),
+            totalPayout: finalFiatAmount,
           },
           payout: {
             fiatCurrency: existing.fiatCurrency,
@@ -138,9 +153,14 @@ export class PaymentsService {
 
     const exchangeRate = Number(probeResp.exchangeInfo.exchangeRate);
 
-    // Step 2: Convert USDC amount to fiat amount
+    // Step 2: Convert USDC amount to base fiat amount
     // exchangeRate = fiat per 1 USDC (e.g., 25500 VND per 1 USDC)
-    const fiatAmount = Math.round(dto.usdcAmount * exchangeRate);
+    const baseFiatAmount = Math.round(dto.usdcAmount * exchangeRate);
+
+    // Apply payout fee on FIAT (USDC stays unchanged)
+    const payoutFeeRate = this.getPayoutFeeRate(); // e.g. 0.02
+    const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
+    const fiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
 
     // Step 3: Calculate the actual USDC amount after Gaian fees
     const exchangeResp = await this.gaian.calculateExchange({
@@ -159,15 +179,8 @@ export class PaymentsService {
       ? cryptoAmount
       : decimalToRawAmount(cryptoAmount, usdcDecimals);
 
-    const gaianExpected = Number(gaianExpectedCryptoAmountRaw);
-
-    // Step 4: Add HiddenWallet fee on top of what Gaian expects
-    const expectedCryptoAmountRaw = String(
-      Math.ceil(gaianExpected / (1 - feeRate)),
-    );
-
-    const hiddenWalletFeeAmountRaw = Math.max(0, Number(expectedCryptoAmountRaw) - gaianExpected);
-    const hiddenWalletFeeAmount = hiddenWalletFeeAmountRaw / Math.pow(10, usdcDecimals);
+    // Step 4: Keep USDC unchanged. User transfers exactly what Gaian expects.
+    const expectedCryptoAmountRaw = String(gaianExpectedCryptoAmountRaw);
 
     // Create order with qrString directly
     const order = await this.prisma.order.create({
@@ -180,9 +193,11 @@ export class PaymentsService {
         expectedCryptoAmountRaw,
         fiatAmount,
         fiatCurrency,
-        hiddenWalletFeeRate: feeRate,
-        hiddenWalletFeeAmount,
         exchangeRate,
+        payoutFeeRate: payoutFeeRate,
+        payoutFeeAmountFiat: feeFiatAmount,
+        payoutFeeBaseFiatAmount: baseFiatAmount,
+        payoutFeeFinalFiatAmount: fiatAmount,
         gaianRaw: exchangeResp,
         clientRequestId: dto.clientRequestId,
       },
@@ -192,12 +207,12 @@ export class PaymentsService {
       id: order.id,
       status: order.status,
       exchangeInfo: exchangeResp.exchangeInfo,
-      hiddenWallet: {
-        feePercent: feePercentStr,
-        feeRate,
-        feeAmount: hiddenWalletFeeAmountRaw,
-        amountBeforeFee: Number(gaianExpectedCryptoAmountRaw),
-        amountWithFee: Number(expectedCryptoAmountRaw),
+      loyaltyFeeDiscount: {
+        feePercent: String(payoutFeeRate * 100), // e.g. "2.0"
+        feeRate: payoutFeeRate,
+        feeAmount: feeFiatAmount,
+        baseFiatAmount: baseFiatAmount,
+        finalFiatAmount: fiatAmount,
       },
       paymentInstruction: {
         toAddress: partnerWalletAddress,
@@ -421,12 +436,24 @@ export class PaymentsService {
         token: dto.token,
       });
 
+      const payoutFeeRate = this.getPayoutFeeRate();
+      const baseFiatAmount = PaymentsService.toNumberStrict(exchangeInfo.fiatAmount, 'INVALID_FIAT_AMOUNT');
+      const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
+      const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
+
       return {
         success: true,
         direction: dto.direction,
         username: target.username,
         fiatCurrency: exchangeInfo.fiatCurrency,
-        fiatAmount: exchangeInfo.fiatAmount,
+        fiatAmount: finalFiatAmount,
+        loyaltyFeeDiscount: {
+          feePercent: String(payoutFeeRate * 100),
+          feeRate: payoutFeeRate,
+          feeAmount: feeFiatAmount,
+          baseFiatAmount,
+          finalFiatAmount,
+        },
         cryptoCurrency: exchangeInfo.cryptoCurrency,
         usdcAmount: dto.usdcAmount,
         exchangeRate: exchangeInfo.exchangeRate,

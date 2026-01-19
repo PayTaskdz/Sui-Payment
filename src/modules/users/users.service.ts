@@ -192,19 +192,25 @@ export class UsersService {
     }
 
     // --- 4. COMMISSION FOR REFERRER (based on referrer's tier) ---
+    // Commission is calculated from platform fee collected (payout fee), converted to "$" using exchangeRate.
     if (user.referrer) {
-      const feeCollected = Number(order.hiddenWalletFeeAmount || 0);
-      
-      // Calculate referrer's tier based on their current points
-      const referrerTier = this.calculateLoyaltyTier(user.referrer.loyaltyPoints);
-      const commissionRate = this.getCommissionRateForTier(referrerTier);
-      const commission = feeCollected * commissionRate;
+      const feeFiat = Number((order as any).payoutFeeAmountFiat || 0);
+      const exchangeRate = Number(order.exchangeRate || 0);
 
-      if (commission > 0) {
-        await this.prisma.user.update({
-          where: { id: user.referrer.id },
-          data: { commissionBalance: { increment: commission } },
-        });
+      if (feeFiat > 0 && exchangeRate > 0) {
+        const feeUsd = feeFiat / exchangeRate;
+
+        // Calculate referrer's tier based on their current points
+        const referrerTier = this.calculateLoyaltyTier(user.referrer.loyaltyPoints);
+        const commissionRate = this.getCommissionRateForTier(referrerTier);
+        const commission = feeUsd * commissionRate;
+
+        if (commission > 0) {
+          await this.prisma.user.update({
+            where: { id: user.referrer.id },
+            data: { commissionBalance: { increment: commission } },
+          });
+        }
       }
     }
   }
