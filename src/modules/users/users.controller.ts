@@ -39,14 +39,7 @@ export class UsersController {
     return this.usersService.changeUsername(req.user.userId, dto.newUsername);
   }
   
-    @Get('check-username')
-  async checkUsername(@Query('username') username: string) {
-    return this.usersService.checkUsernameAvailability(username);
-  }
 
-  @Post('onboarding')
-  async onboarding(@Req() req: any, @Body() dto: OnboardingDto) {
-    return this.usersService.completeOnboarding(req.user.userId, dto);
   /**
    * GET /users/lookup?username=xxx
    * Lookup user by username (for transfers)

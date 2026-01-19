@@ -1,0 +1,493 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* HiddenWallet UI - Global Styles
+ * A minimalist, mobile-first design for the HiddenWallet dApp.
+ */
+
+@layer base {
+  :root {
+    /* Soft grey background with white cards */
+    --background: 0 0% 97%;
+    --foreground: 0 0% 8%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 8%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 8%;
+
+    --primary: 0 0% 8%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 94%;
+    --secondary-foreground: 0 0% 8%;
+
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 8%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 63% 42%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 100%;
+    --ring: 0 0% 8%;
+
+    --radius: 9999px;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 8%;
+
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 55%;
+
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 63% 42%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 0 0% 20%;
+    --input: 0 0% 15%;
+    --ring: 0 0% 98%;
+  }
+}
+
+@layer base {
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    @apply border-border;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.01em;
+    font-size: 16px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    overscroll-behavior-x: none;
+    margin: 0;
+  }
+
+  #root {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .page-wrapper {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@layer components {
+
+  /* Mobile app container */
+  .app-container {
+    min-height: 100vh;
+    min-height: 100dvh;
+    width: 100%;
+    background: hsl(var(--card));
+    overflow-x: hidden;
+    overflow-y: auto;
+    position: relative;
+  }
+
+  @media (min-width: 481px) {
+    .app-container {
+      max-width: 420px;
+      margin-left: auto;
+      margin-right: auto;
+      border-left: 1px solid hsl(var(--border));
+      border-right: 1px solid hsl(var(--border));
+    }
+  }
+
+  /* Page wrapper */
+  .page-wrapper {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 16px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+
+  .card-modern {
+    @apply bg-card rounded-xl p-4 border border-border;
+  }
+
+  .card-stat {
+    @apply bg-card rounded-2xl p-4 flex-1;
+  }
+
+  /* Balance display - large with hierarchy */
+  .balance-display {
+    font-size: 2.5rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+
+  .balance-decimal {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .display-medium {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+
+  /* User pill badge */
+  .user-pill {
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-card rounded-full shadow-sm;
+  }
+
+  .user-avatar {
+    @apply w-7 h-7 rounded-full bg-secondary flex items-center justify-center overflow-hidden;
+  }
+
+  /* Label text */
+  .label-text {
+    @apply text-sm text-muted-foreground font-medium;
+  }
+
+  /* Input modern */
+  .input-modern {
+    @apply w-full px-4 py-3.5 bg-input rounded-xl text-foreground text-base font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/20 transition-all;
+  }
+
+  /* Button pill - primary (solid black) */
+  .btn-pill-primary {
+    @apply px-6 py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-full transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2;
+  }
+
+  /* Button pill - secondary (outlined) */
+  .btn-pill-secondary {
+    @apply px-6 py-3 bg-secondary text-secondary-foreground font-semibold text-sm rounded-full transition-all hover:bg-secondary/80 active:scale-[0.98] inline-flex items-center justify-center gap-2;
+  }
+
+  /* Full width buttons */
+  .btn-primary {
+    @apply w-full py-3.5 bg-primary text-primary-foreground font-semibold text-base rounded-full transition-all hover:opacity-90 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply w-full py-3.5 bg-secondary text-secondary-foreground font-semibold text-base rounded-full transition-all hover:bg-secondary/80 active:scale-[0.99];
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply py-2 px-4 text-muted-foreground font-medium text-sm transition-all hover:text-foreground rounded-full;
+  }
+
+  /* Row item */
+  .row-item {
+    @apply flex justify-between items-center py-4 border-b border-border last:border-b-0;
+  }
+
+  /* List item in card */
+  .list-item-card {
+    @apply flex items-center gap-3 p-3 bg-card rounded-xl;
+  }
+
+  /* Icon circle */
+  .icon-circle {
+    @apply w-10 h-10 rounded-full flex items-center justify-center;
+  }
+
+  .icon-circle-primary {
+    @apply icon-circle bg-primary text-primary-foreground;
+  }
+
+  .icon-circle-secondary {
+    @apply icon-circle bg-secondary text-secondary-foreground;
+  }
+
+  .icon-circle-success {
+    @apply icon-circle bg-success/10 text-success;
+  }
+
+  /* Section title */
+  .section-title {
+    @apply text-base font-semibold mb-3;
+  }
+
+  /* Divider */
+  .divider {
+    @apply w-full h-px bg-border my-4;
+  }
+
+  /* Tag/Badge */
+  .tag {
+    @apply inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-secondary;
+  }
+
+  .tag-success {
+    @apply inline-block px-2.5 py-1 text-xs font-bold rounded-full bg-success text-success-foreground shadow-sm;
+  }
+}
+
+/* Animations */
+
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stagger-1 {
+  animation-delay: 0.05s;
+}
+
+.stagger-2 {
+  animation-delay: 0.1s;
+}
+
+.stagger-3 {
+  animation-delay: 0.15s;
+}
+
+/* Sui Connect Button Override */
+.sui-connect-wrapper {
+  width: 100%;
+}
+
+.sui-connect-wrapper button {
+  width: 100% !important;
+  padding: 0.875rem !important;
+  font-weight: 600 !important;
+  font-size: 1rem !important;
+  border-radius: 9999px !important;
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border: none !important;
+}
+
+.sui-connect-wrapper button:hover {
+  opacity: 0.9 !important;
+}
+
+/* QR Scanner */
+@keyframes scan-line {
+  0% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(200px);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.animate-scan-line {
+  animation: scan-line 2s ease-in-out infinite;
+}
+
+/* Global focus styles */
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
+
+/* Mobile Bottom Navigation */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 420px;
+  background: hsl(var(--card));
+  padding: 12px 24px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 100;
+  justify-content: space-around;
+  align-items: center;
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 768px) {
+  .mobile-bottom-nav {
+    display: flex;
+  }
+
+  .page-wrapper {
+    padding-bottom: 90px;
+  }
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: hsl(var(--muted-foreground));
+  transition: color 0.2s;
+}
+
+.nav-item.active {
+  color: hsl(var(--foreground));
+}
+
+.nav-icon {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.5;
+}
+
+.nav-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Center scan button in nav */
+.nav-item-scan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: hsl(var(--muted-foreground));
+  margin-top: -30px;
+  /* Lift it up more */
+  position: relative;
+  z-index: 10;
+}
+
+.scan-button {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  /* Consistent with theme: Primary color (Black in light, White in dark) */
+  background: hsl(var(--primary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Floating effect with consistent shadow color */
+  box-shadow: 0 8px 20px hsl(var(--primary) / 0.3), 0 0 0 6px hsl(var(--card));
+  transition: transform 0.2s, box-shadow 0.2s;
+  /* Icon color matches primary foreground */
+  color: hsl(var(--primary-foreground));
+}
+
+.scan-button:hover {
+  transform: translateY(-2px) scale(1.05);
+  /* Enhanced shadow on hover */
+  box-shadow: 0 12px 25px hsl(var(--primary) / 0.4), 0 0 0 6px hsl(var(--card));
+}
+
+.scan-button:active {
+  transform: scale(0.95);
+}
+
+.stagger-4 {
+  animation-delay: 0.2s;
+}
+
+/* Animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
