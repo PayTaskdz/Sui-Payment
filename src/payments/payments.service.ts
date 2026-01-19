@@ -52,8 +52,13 @@ export class PaymentsService {
       userPaymentVerifiedAt: order.userPaymentVerifiedAt,
       fiatAmount: String(order.fiatAmount),
       fiatCurrency: order.fiatCurrency,
-      hiddenWalletFeeRate: order.hiddenWalletFeeRate ? String(order.hiddenWalletFeeRate) : null,
-      hiddenWalletFeeAmount: order.hiddenWalletFeeAmount ? String(order.hiddenWalletFeeAmount) : null,
+      platformFee: order.payoutFeeRate ? {
+        feePercent: String(Number(order.payoutFeeRate) * 100),
+        feeRate: Number(order.payoutFeeRate),
+        feeAmount: Number(order.payoutFeeAmountFiat),
+        baseFiatAmount: Number(order.payoutFeeBaseFiatAmount),
+        finalFiatAmount: Number(order.payoutFeeFinalFiatAmount),
+      } : undefined,
       status: order.status,
       bankTransferStatus: order.bankTransferStatus,
       bankTransactionReference: order.bankTransactionReference,
@@ -117,7 +122,7 @@ export class PaymentsService {
           id: existing.id,
           status: existing.status,
           exchangeInfo: (existing.gaianRaw as any)?.exchangeInfo ?? null,
-          loyaltyFeeDiscount: {
+          platformFee: {
             feePercent: String(payoutFeeRate * 100),
             feeRate: payoutFeeRate,
             feeAmount: feeFiatAmount,
@@ -207,7 +212,7 @@ export class PaymentsService {
       id: order.id,
       status: order.status,
       exchangeInfo: exchangeResp.exchangeInfo,
-      loyaltyFeeDiscount: {
+      platformFee: {
         feePercent: String(payoutFeeRate * 100), // e.g. "2.0"
         feeRate: payoutFeeRate,
         feeAmount: feeFiatAmount,

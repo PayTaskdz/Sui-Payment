@@ -39,7 +39,7 @@ export class CreateOrderResponseDto {
     required: false,
     description: 'Fixed payout fee deducted from fiat payout (USDC unchanged)',
   })
-  loyaltyFeeDiscount?: {
+  platformFee?: {
     feePercent: string;
     feeRate: number;
     feeAmount: number;
