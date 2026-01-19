@@ -97,6 +97,7 @@ export class PaymentsService {
       throw new BadRequestException('SUI_USDC_COIN_TYPE_NOT_CONFIGURED');
     }
 
+
     const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
 
 
@@ -128,6 +129,7 @@ export class PaymentsService {
             feeAmount: feeFiatAmount,
             baseFiatAmount,
             finalFiatAmount,
+            cryptoEquivalent: null as any,
           },
           paymentInstruction: {
             toAddress: existing.partnerWalletAddress,
@@ -158,34 +160,16 @@ export class PaymentsService {
 
     const exchangeRate = Number(probeResp.exchangeInfo.exchangeRate);
 
-    // Step 2: Convert USDC amount to base fiat amount
-    // exchangeRate = fiat per 1 USDC (e.g., 25500 VND per 1 USDC)
-    const baseFiatAmount = Math.round(dto.usdcAmount * exchangeRate);
+    // Step 2: User transfers the exact USDC amount they input.
+    const usdcAmountDecimal = dto.usdcAmount;
+    const expectedCryptoAmountRaw = decimalToRawAmount(String(usdcAmountDecimal), usdcDecimals);
 
-    // Apply payout fee on FIAT (USDC stays unchanged)
+    // Step 3: Calculate fiat values based on the initial USDC amount.
+    // exchangeRate = fiat per 1 USDC (e.g., 25500 VND per 1 USDC)
+    const baseFiatAmount = Math.round(usdcAmountDecimal * exchangeRate);
     const payoutFeeRate = this.getPayoutFeeRate(); // e.g. 0.02
     const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
-    const fiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
-
-    // Step 3: Calculate the actual USDC amount after Gaian fees
-    const exchangeResp = await this.gaian.calculateExchange({
-      amount: fiatAmount,
-      country,
-      chain: 'Solana',
-      token,
-    });
-
-    if (!exchangeResp?.success || !exchangeResp?.exchangeInfo?.cryptoAmount) {
-      throw new BadRequestException('GAIAN_CALCULATE_EXCHANGE_FAILED');
-    }
-
-    const cryptoAmount = String(exchangeResp.exchangeInfo.cryptoAmount);
-    const gaianExpectedCryptoAmountRaw = isRawIntString(cryptoAmount)
-      ? cryptoAmount
-      : decimalToRawAmount(cryptoAmount, usdcDecimals);
-
-    // Step 4: Keep USDC unchanged. User transfers exactly what Gaian expects.
-    const expectedCryptoAmountRaw = String(gaianExpectedCryptoAmountRaw);
+    const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount); // This is what the recipient gets.
 
     // Create order with qrString directly
     const order = await this.prisma.order.create({
@@ -195,15 +179,15 @@ export class PaymentsService {
         partnerWalletAddress,
         cryptoCurrency,
         coinType,
-        expectedCryptoAmountRaw,
-        fiatAmount,
+        expectedCryptoAmountRaw, // Full USDC amount
+        fiatAmount: finalFiatAmount, // Final fiat amount for Gaian
         fiatCurrency,
         exchangeRate,
         payoutFeeRate: payoutFeeRate,
         payoutFeeAmountFiat: feeFiatAmount,
         payoutFeeBaseFiatAmount: baseFiatAmount,
-        payoutFeeFinalFiatAmount: fiatAmount,
-        gaianRaw: exchangeResp,
+        payoutFeeFinalFiatAmount: finalFiatAmount,
+        gaianRaw: { note: "Exchange info is based on probed rate", probeResp },
         clientRequestId: dto.clientRequestId,
       },
     });
@@ -211,20 +195,29 @@ export class PaymentsService {
     return {
       id: order.id,
       status: order.status,
-      exchangeInfo: exchangeResp.exchangeInfo,
+      exchangeInfo: {
+        cryptoAmount: usdcAmountDecimal,
+        fiatAmount: finalFiatAmount,
+        fiatCurrency: fiatCurrency,
+        cryptoCurrency: cryptoCurrency,
+        exchangeRate: exchangeRate,
+        feeAmount: Number(probeResp.exchangeInfo.feeAmount ?? 0),
+        timestamp: probeResp.exchangeInfo.timestamp,
+      },
       platformFee: {
-        feePercent: String(payoutFeeRate * 100), // e.g. "2.0"
+        feePercent: String(payoutFeeRate * 100),
         feeRate: payoutFeeRate,
         feeAmount: feeFiatAmount,
         baseFiatAmount: baseFiatAmount,
-        finalFiatAmount: fiatAmount,
-      },
+        finalFiatAmount: finalFiatAmount,
+        cryptoEquivalent: Number((feeFiatAmount / exchangeRate).toFixed(usdcDecimals)),
+      } as any,
       paymentInstruction: {
         toAddress: partnerWalletAddress,
         coinType,
-        totalCrypto: (Number(expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(usdcDecimals),
+        totalCrypto: String(usdcAmountDecimal),
         totalCryptoRaw: expectedCryptoAmountRaw,
-        totalPayout: fiatAmount,
+        totalPayout: finalFiatAmount,
       },
       payout: {
         fiatCurrency,

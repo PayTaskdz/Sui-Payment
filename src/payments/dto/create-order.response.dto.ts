@@ -45,6 +45,7 @@ export class CreateOrderResponseDto {
     feeAmount: number;
     baseFiatAmount: number;
     finalFiatAmount: number;
+    cryptoEquivalent: number;
   };
 
   @ApiProperty({ type: PaymentInstructionDto })
