@@ -481,106 +481,55 @@ private static rawToDecimal(raw: string, decimals: number): number {
     return resp.exchangeInfo;
   }
 
-  async quote(dto: {
-    username: string;
-    direction: string;
-    fiatAmount?: number;
-    usdcAmount?: string;
-    country: string;
-    token: string;
-  }) {
-    const target = await this.prisma.paymentTarget.findUnique({
-      where: { username: dto.username },
-    });
-
-    if (!target || !target.isActive) {
-      throw new NotFoundException('USERNAME_NOT_FOUND');
-    }
-
+  async quote(dto: QuoteDto) {
     const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
 
-    if (dto.direction === 'FIAT_TO_USDC') {
-      if (typeof dto.fiatAmount !== 'number') {
-        throw new BadRequestException('FIAT_AMOUNT_REQUIRED');
-      }
-
-      const exchangeInfo = await this.calcExchangeFiatToUsdc({
-        fiatAmount: dto.fiatAmount,
-        country: dto.country,
-        token: dto.token,
-      });
-
-      const cryptoAmount = String(exchangeInfo.cryptoAmount);
-      const usdcAmountRaw = isRawIntString(cryptoAmount)
-        ? cryptoAmount
-        : decimalToRawAmount(cryptoAmount, usdcDecimals);
-
-      return {
-        success: true,
-        direction: dto.direction,
-        username: target.username,
-        fiatCurrency: exchangeInfo.fiatCurrency,
-        fiatAmount: exchangeInfo.fiatAmount,
-        cryptoCurrency: exchangeInfo.cryptoCurrency,
-        usdcAmount: cryptoAmount,
-        usdcAmountRaw,
-        exchangeRate: exchangeInfo.exchangeRate,
-        feeAmount: exchangeInfo.feeAmount,
-        timestamp: exchangeInfo.timestamp,
-        gaianExchangeInfo: exchangeInfo,
-      };
+    // Only support USDC_TO_FIAT for now (1 USDC → VND recipient gets)
+    if (dto.direction !== 'USDC_TO_FIAT' || !dto.usdcAmount) {
+      throw new BadRequestException('ONLY_USDC_TO_FIAT_SUPPORTED');
     }
 
-    if (dto.direction === 'USDC_TO_FIAT') {
-      if (!dto.usdcAmount) {
-        throw new BadRequestException('USDC_AMOUNT_REQUIRED');
-      }
+    // Match createOrder logic: use 100k VND for probe to get exchange rate
+    const probeFiatAmount = dto.country.toUpperCase() === 'PH' ? 100 : 100000;
+    const probe = await this.calcExchangeFiatToUsdc({
+      fiatAmount: probeFiatAmount,
+      country: dto.country,
+      token: dto.token,
+    });
 
-      const probeFiatAmount = target.fiatCurrency === 'PHP' ? 10 : 50000;
-      const probe = await this.calcExchangeFiatToUsdc({
-        fiatAmount: probeFiatAmount,
-        country: dto.country,
-        token: dto.token,
-      });
-
-      const exchangeRate = PaymentsService.toNumberStrict(probe.exchangeRate, 'INVALID_EXCHANGE_RATE');
-      const usdc = PaymentsService.toNumberStrict(dto.usdcAmount, 'INVALID_USDC_AMOUNT');
-
-      const fiatAmount = Math.ceil(usdc * exchangeRate);
-      const exchangeInfo = await this.calcExchangeFiatToUsdc({
-        fiatAmount,
-        country: dto.country,
-        token: dto.token,
-      });
-
-      const payoutFeeRate = this.getPayoutFeeRate();
-      const baseFiatAmount = PaymentsService.toNumberStrict(exchangeInfo.fiatAmount, 'INVALID_FIAT_AMOUNT');
-      const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
-      const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
-
-      return {
-        success: true,
-        direction: dto.direction,
-        username: target.username,
-        fiatCurrency: exchangeInfo.fiatCurrency,
-        fiatAmount: finalFiatAmount,
-        loyaltyFeeDiscount: {
-          feePercent: String(payoutFeeRate * 100),
-          feeRate: payoutFeeRate,
-          feeAmount: feeFiatAmount,
-          baseFiatAmount,
-          finalFiatAmount,
-        },
-        cryptoCurrency: exchangeInfo.cryptoCurrency,
-        usdcAmount: dto.usdcAmount,
-        exchangeRate: exchangeInfo.exchangeRate,
-        feeAmount: exchangeInfo.feeAmount,
-        timestamp: exchangeInfo.timestamp,
-        gaianExchangeInfo: exchangeInfo,
-      };
+    if (!probe?.exchangeRate) {
+      throw new BadRequestException('GAIAN_RATE_FETCH_FAILED');
     }
 
-    throw new BadRequestException('INVALID_DIRECTION');
+    const exchangeRate = PaymentsService.toNumberStrict(probe.exchangeRate, 'INVALID_EXCHANGE_RATE');
+    const usdcAmount = PaymentsService.toNumberStrict(dto.usdcAmount, 'INVALID_USDC_AMOUNT');
+
+    // Calculate final payout (matching createOrder logic)
+    const baseFiatAmount = Math.round(usdcAmount * exchangeRate);
+    const payoutFeeRate = this.getPayoutFeeRate();
+    const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
+    const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
+
+    return {
+      success: true,
+      direction: dto.direction,
+      fiatCurrency: probe.fiatCurrency,
+      fiatAmount: finalFiatAmount, // What recipient actually gets
+      cryptoCurrency: probe.cryptoCurrency,
+      usdcAmount: dto.usdcAmount,
+      exchangeRate: probe.exchangeRate, // Base rate before fees
+      feeAmount: feeFiatAmount,
+      feeRate: payoutFeeRate,
+      timestamp: new Date().toISOString(),
+      // Include breakdown for transparency
+      loyaltyFeeDiscount: {
+        feePercent: String(payoutFeeRate * 100),
+        feeRate: payoutFeeRate,
+        feeAmount: feeFiatAmount,
+        baseFiatAmount,
+        finalFiatAmount,
+      },
+    };
   }
 
   async syncStatus(orderId: string) {

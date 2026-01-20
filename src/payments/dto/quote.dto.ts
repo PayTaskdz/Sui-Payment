@@ -3,6 +3,7 @@ import {
   IsIn,
   IsNotEmpty,
   IsNumber,
+
   IsString,
   Matches,
   Min,
@@ -10,11 +11,6 @@ import {
 } from 'class-validator';
 
 export class QuoteDto {
-  @ApiProperty({ example: 'alice' })
-  @IsString()
-  @IsNotEmpty()
-  username: string;
-
   @ApiProperty({ example: 'FIAT_TO_USDC', enum: ['FIAT_TO_USDC', 'USDC_TO_FIAT'] })
   @IsString()
   @IsIn(['FIAT_TO_USDC', 'USDC_TO_FIAT'])
