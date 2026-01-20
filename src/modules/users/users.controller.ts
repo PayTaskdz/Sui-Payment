@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangeUsernameDto } from './dto/change-username.dto';
+import { OnboardingDto } from './dto/onboarding.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('bearer')
@@ -12,9 +14,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   /**
-   * GET /users/profile?userId=xxx
-   * Get user profile with wallets and KYC status
-   * TODO: Later replace with JWT @CurrentUser() decorator
+   * GET /users/profile
+   * Get user profile with wallets, KYC status, and loyalty tier info
    */
   @Get('profile')
   async getProfile(@Req() req: any) {
@@ -22,12 +23,39 @@ export class UsersController {
   }
 
   /**
-   * PATCH /users/profile?userId=xxx
+   * PATCH /users/profile
    * Update profile info (email, firstName, lastName)
    */
   @Patch('profile')
   async updateProfile(@Req() req: any, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateProfile(req.user.userId, dto);
+  }
+
+  /**
+   * PATCH /users/profile/username
+   * UC7: Change username
+   */
+  @Patch('profile/username')
+  async changeUsername(@Req() req: any, @Body() dto: ChangeUsernameDto) {
+    return this.usersService.changeUsername(req.user.userId, dto.newUsername);
+  }
+  
+  /**
+   * GET /users/check-username?username=xxx
+   * Check if username is available
+   */
+  @Get('check-username')
+  async checkUsername(@Query('username') username: string) {
+    return this.usersService.checkUsernameAvailability(username);
+  }
+
+  /**
+   * POST /users/onboarding
+   * Complete user onboarding process
+   */
+  @Post('onboarding')
+  async onboarding(@Req() req: any, @Body() dto: OnboardingDto) {
+    return this.usersService.completeOnboarding(req.user.userId, dto);
   }
 
   /**
@@ -40,24 +68,20 @@ export class UsersController {
   }
 
   /**
-   * GET /users/referral-stats
-   * Get referral statistics (F0 rewards and F1 rewards)
+   * GET /users/loyalty-stats
+   * Get detailed loyalty program statistics
    */
-  @Get('referral-stats')
-  async getReferralStats(@Req() req: any) {
-    return this.usersService.getReferralStats(req.user.userId);
+  @Get('loyalty-stats')
+  async getLoyaltyStats(@Req() req: any) {
+    return this.usersService.getLoyaltyStats(req.user.userId);
   }
 
   /**
-   * GET /users/referral-history?limit=50
-   * Get referral reward history
+   * GET /users/referral-info
+   * Get referral program information and referee list
    */
-  @Get('referral-history')
-  async getReferralHistory(
-    @Req() req: any,
-    @Query('limit') limit?: string
-  ) {
-    const limitNum = limit ? parseInt(limit, 10) : 50;
-    return this.usersService.getReferralHistory(req.user.userId, limitNum);
+  @Get('referral-info')
+  async getReferralInfo(@Req() req: any) {
+    return this.usersService.getReferralInfo(req.user.userId);
   }
 }

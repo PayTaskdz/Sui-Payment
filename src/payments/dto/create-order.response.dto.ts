@@ -18,8 +18,8 @@ class PaymentInstructionDto {
 }
 
 class PayoutDto {
-  @ApiProperty()
-  username: string;
+  @ApiProperty({ required: false })
+  username?: string;
 
   @ApiProperty()
   fiatCurrency: string;
@@ -37,14 +37,15 @@ export class CreateOrderResponseDto {
 
   @ApiProperty({
     required: false,
-    description: 'HiddenWallet markup fee applied on top of payout fiat amount',
+    description: 'Fixed payout fee deducted from fiat payout (USDC unchanged)',
   })
-  hiddenWallet?: {
+  platformFee?: {
     feePercent: string;
     feeRate: number;
     feeAmount: number;
-    amountBeforeFee: number;
-    amountWithFee: number;
+    baseFiatAmount: number;
+    finalFiatAmount: number;
+    cryptoEquivalent: number;
   };
 
   @ApiProperty({ type: PaymentInstructionDto })

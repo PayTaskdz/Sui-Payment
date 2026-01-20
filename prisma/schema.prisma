@@ -1,7 +1,3 @@
-// Prisma schema for SwiftPath - Identity, Wallet & Payment Management
-// Database: PostgreSQL 15+
-// Generated based on requirement-linked.md + requirement-payment.md
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,172 +7,89 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================
-// ENUMS
-// ============================================
-enum OrderStatus {
-  AWAITING_USER_PAYMENT
-  USER_PAYMENT_VERIFIED
-  CONFIRMING_GAIAN_PAYMENT
-  CONFIRMED_GAIAN_PAYMENT
-  COMPLETED
-  FAILED
-}
-
-enum BankTransferStatus {
-  QUEUED
-  PROCESSING
-  COMPLETED
-  FAILED
-}
-
-// ============================================
-// USERS TABLE
-// Purpose: Central identity with KYC status
-// ============================================
 model User {
-  id              String   @id @default(uuid()) @db.Uuid
-  username        String   @unique
-  walletAddress   String   @map("wallet_address")
-  email           String?
-
-  // KYC Fields (synced from Gaian)
-  kycStatus       String   @default("not started") @map("kyc_status")
-  firstName       String?  @map("first_name")
-  lastName        String?  @map("last_name")
-
-  // --- B. QUAN HỆ GIỚI THIỆU (Referral System - 1 Cấp) ---
-  referrerId      String?  @map("referrer_id") @db.Uuid // ID của người giới thiệu mình (F0)
-
-  // --- C. REWARDS & COMMISSION ---
-  loyaltyPoints      Float    @default(0) @map("loyalty_points") // Điểm tích luỹ từ giao dịch (F1 nhận)
-  commissionBalance  Float    @default(0) @map("commission_balance") // Hoa hồng từ F1 (F0 nhận)
-
-  // Status
-  isActive        Boolean  @default(true) @map("is_active")
-
-  // Timestamps
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  onchainWallets  OnchainWallet[]
-  offchainWallets OffchainWallet[]
-  contacts        Contact[]
-  referrer        User?    @relation("UserReferral", fields: [referrerId], references: [id], onDelete: SetNull)
-  referees        User[]   @relation("UserReferral") // Danh sách F1 mình đã giới thiệu
-  
-  // Referral Rewards
-  referrerRewards ReferralReward[] @relation("ReferrerRewards") // Rewards I received as F0
-  refereeRewards  ReferralReward[] @relation("RefereeRewards")  // Rewards I received as F1
+  id                String           @id @default(uuid()) @db.Uuid
+  username          String?          @unique
+  walletAddress     String           @map("wallet_address")
+  email             String?
+  kycStatus         String           @default("not started") @map("kyc_status")
+  firstName         String?          @map("first_name")
+  lastName          String?          @map("last_name")
+  referrerId        String?          @map("referrer_id") @db.Uuid
+  loyaltyPoints     Float            @default(0) @map("loyalty_points")
+  commissionBalance Float            @default(0) @map("commission_balance")
+  isActive          Boolean          @default(true) @map("is_active")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  contacts          Contact[]
+  offchainWallets   OffchainWallet[]
+  onchainWallets    OnchainWallet[]
+  referrer          User?            @relation("UserReferral", fields: [referrerId], references: [id])
+  referees          User[]           @relation("UserReferral")
 
   @@index([referrerId])
   @@map("users")
 }
 
-// ============================================
-// ONCHAIN WALLETS TABLE
-// Purpose: Crypto wallet addresses (multi-chain, SUI priority)
-// ============================================
 model OnchainWallet {
   id             String   @id @default(uuid()) @db.Uuid
   userId         String   @map("user_id") @db.Uuid
-
-  // Wallet Info
   address        String
-  chain          String   // "Sui", "Solana", "Ethereum", "Polygon", etc.
+  chain          String
   label          String?
-  walletProvider String?  @map("wallet_provider") // "metamask", "phantom", "sui_wallet"
-
-  // Status
+  walletProvider String?  @map("wallet_provider")
+  kycStatus      String   @default("not started") @map("kyc_status")
   isDefault      Boolean  @default(false) @map("is_default")
   isActive       Boolean  @default(true) @map("is_active")
-
-  // Timestamps
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
-
-  // Relations
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Constraints
   @@unique([chain, address])
   @@index([userId])
   @@index([isDefault])
   @@map("onchain_wallets")
 }
 
-// ============================================
-// OFFCHAIN WALLETS TABLE
-// Purpose: Bank accounts linked to users
-// ============================================
 model OffchainWallet {
-  id             String   @id @default(uuid()) @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  country       String
+  bankBin       String   @map("bank_bin")
+  bankName      String   @map("bank_name")
+  accountNumber String   @map("account_number")
+  accountName   String   @map("account_name")
+  label         String?
+  qrString      String   @map("qr_string")
+  qrParsedData  Json?    @map("qr_parsed_data")
+  isDefault     Boolean  @default(false) @map("is_default")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Bank Account Info
-  country        String   // "VN", "PH"
-  bankBin        String   @map("bank_bin")
-  bankName       String   @map("bank_name")
-  accountNumber  String   @map("account_number")
-  accountName    String   @map("account_name")
-  label          String?
-
-  // QR Data (from Gaian parseQr API)
-  qrString       String   @map("qr_string") // Required for Place Order API
-  qrParsedData   Json?    @map("qr_parsed_data") @db.JsonB // Full parseQr response backup
-
-  // Status
-  isDefault      Boolean  @default(false) @map("is_default")
-  isActive       Boolean  @default(true) @map("is_active")
-
-  // Timestamps
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Constraints
   @@unique([country, bankBin, accountNumber])
   @@index([userId])
   @@index([isDefault])
   @@map("offchain_wallets")
 }
 
-// ============================================
-// CONTACTS TABLE
-// Purpose: Saved contacts for quick transfers
-// ============================================
 model Contact {
   id                String    @id @default(uuid()) @db.Uuid
   userId            String    @map("user_id") @db.Uuid
-
-  // Recipient Info
   recipientUsername String    @map("recipient_username")
   recipientUserId   String?   @map("recipient_user_id") @db.Uuid
   label             String?
-
-  // Transfer Stats
   lastTransferAt    DateTime? @map("last_transfer_at")
   transferCount     Int       @default(0) @map("transfer_count")
-
-  // Timestamps
   createdAt         DateTime  @default(now()) @map("created_at")
-
-  // Relations
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Constraints
   @@unique([userId, recipientUsername])
   @@index([userId])
   @@map("contacts")
 }
 
-// ============================================
-// PAYMENT TARGET TABLE
-// Purpose: Recipients for payments (from requirement-payment.md)
-// ============================================
 model PaymentTarget {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -188,106 +101,93 @@ model PaymentTarget {
   notes        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
-  orders Order[]
+  orders       Order[]
 
   @@map("payment_targets")
 }
 
-// ============================================
-// ORDER TABLE
-// Purpose: Track payment orders via Gaian
-// ============================================
 model Order {
-  id                      String             @id @default(cuid())
-  gaianOrderId             String?            @unique
-  username                 String
-  paymentTargetId          String?
-  payerWalletAddress       String
-  partnerWalletAddress     String
-  cryptoCurrency           String
-  coinType                 String
-  expectedCryptoAmountRaw  String
-  userPaymentTxDigest      String?
-  userPaymentVerifiedAt    DateTime?
+  id                           String              @id @default(cuid())
+  gaianOrderId                 String?             @unique
+  username                     String?
+  paymentTargetId              String?
+  payerWalletAddress           String
+  partnerWalletAddress         String
+  cryptoCurrency               String
+  coinType                     String
+  expectedCryptoAmountRaw      String
+  userPaymentTxDigest          String?
+  userPaymentVerifiedAt        DateTime?
+  fiatAmount                   Decimal             @db.Decimal(18, 2)
+  fiatCurrency                 String
+  hiddenWalletFeeRate          Decimal?            @db.Decimal(9, 6)
+  hiddenWalletFeeAmountRaw     String?
+  hiddenWalletFeeAmount        Decimal?            @db.Decimal(18, 6)
+  status                       OrderStatus         @default(AWAITING_USER_PAYMENT)
+  bankTransferStatus           BankTransferStatus?
+  bankTransactionReference     Json?
+  exchangeRate                 Decimal?            @db.Decimal(18, 8)
+  gaianRaw                     Json?
+  clientRequestId              String?
+  createdAt                    DateTime            @default(now())
+  updatedAt                    DateTime            @updatedAt
+  qrString                     String?             @map("qr_string")
+  recipientAccountName         String?             @map("recipient_account_name")
+  recipientAccountNumber       String?             @map("recipient_account_number")
+  recipientBankName            String?             @map("recipient_bank_name")
+  order_type                   String              @default("REGULAR")
+  user_id                      String?             @db.Uuid
+  payoutFeeRate              Decimal?            @map("payout_fee_rate") @db.Decimal(9, 6)
+  payoutFeeAmountFiat         Decimal?            @map("payout_fee_amount_fiat") @db.Decimal(18, 2)
+  payoutFeeBaseFiatAmount     Decimal?            @map("payout_fee_base_fiat_amount") @db.Decimal(18, 2)
+  payoutFeeFinalFiatAmount    Decimal?            @map("payout_fee_final_fiat_amount") @db.Decimal(18, 2)
+  paymentTarget                PaymentTarget?      @relation(fields: [paymentTargetId], references: [id])
 
-  fiatAmount               Decimal            @db.Decimal(18, 2)
-  fiatCurrency             String
-
-  hiddenWalletFeeRate      Decimal?           @db.Decimal(9, 6)
-  hiddenWalletFeeAmountRaw String?
-  hiddenWalletFeeAmount    Decimal?           @db.Decimal(18, 6)
-
-  status                   OrderStatus        @default(AWAITING_USER_PAYMENT)
-  bankTransferStatus       BankTransferStatus?
-  bankTransactionReference Json?
-
-  exchangeRate             Decimal?           @db.Decimal(18, 8)
-  gaianRaw                 Json?
-
-  clientRequestId          String?
-  createdAt                DateTime           @default(now())
-  updatedAt                DateTime           @updatedAt
-
-  paymentTarget PaymentTarget? @relation(fields: [paymentTargetId], references: [id])
-
-  @@index([payerWalletAddress])
-  @@index([username])
-  @@index([status])
   @@unique([payerWalletAddress, clientRequestId])
+  @@index([payerWalletAddress])
+  @@index([status])
   @@map("orders")
 }
 
-// ============================================
-// AUTH NONCE TABLE
-// Purpose: Wallet login challenge nonces + zkLogin computed nonces
-// ============================================
 model AuthNonce {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   address   String
   nonce     String
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
+  @@unique([address, nonce])
   @@index([address])
   @@index([expiresAt])
-  @@unique([address, nonce])
   @@map("auth_nonces")
 }
 
-// ============================================
-// ZKLOGIN SALT TABLE
-// Purpose: Persistent per-user salt for zkLogin address derivation
-// ============================================
 model ZkLoginSalt {
-  id              String   @id @default(cuid())
-  provider        String
-  providerSub     String
-  userSaltB64     String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          String   @id @default(cuid())
+  provider    String
+  providerSub String
+  userSaltB64 String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([provider, providerSub], name: "provider_providerSub")
   @@map("zklogin_salts")
 }
 
-// ============================================
-// REFERRAL REWARD TABLE
-// Purpose: Track referral bonus history for 500 points/6 months limit
-// ============================================
-model ReferralReward {
-  id          String   @id @default(uuid()) @db.Uuid
-  referrerId  String   @map("referrer_id") @db.Uuid // F0 who received the bonus
-  refereeId   String   @map("referee_id") @db.Uuid   // F1 who triggered the bonus
-  points      Float    // Bonus points awarded
-  reason      String   // "KYC_APPROVED", "F1_COMPLETED_3_TX"
-  createdAt   DateTime @default(now()) @map("created_at")
+enum OrderStatus {
+  AWAITING_USER_PAYMENT
+  USER_PAYMENT_VERIFIED
+  CONFIRMING_GAIAN_PAYMENT
+  CONFIRMED_GAIAN_PAYMENT
+  COMPLETED
+  FAILED
+  PENDING
+}
 
-  // Relations
-  referrer    User     @relation("ReferrerRewards", fields: [referrerId], references: [id], onDelete: Cascade)
-  referee     User     @relation("RefereeRewards", fields: [refereeId], references: [id], onDelete: Cascade)
-
-  @@index([referrerId, createdAt])
-  @@map("referral_rewards")
+enum BankTransferStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
 }

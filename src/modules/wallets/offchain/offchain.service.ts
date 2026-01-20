@@ -59,6 +59,26 @@ export class OffchainService {
     }
   }
 
+/**
+   * UC3: Add bank via VietQR (parse then persist)
+   */
+  async addFromQr(userId: string, qrString: string, label?: string) {
+    const parsed = await this.gaianService.parseQr(qrString);
+
+    if (!parsed) {
+      throw new BadRequestException('Invalid QR Code');
+    }
+
+    return this.addManual(userId, {
+      country: 'VN',
+      bankBin: parsed.bankBin,
+      bankName: parsed.bankName,
+      accountNumber: parsed.accountNumber,
+      accountName: parsed.beneficiaryName,
+      qrString,
+      label: label || `${parsed.bankName} Account`,
+    });
+  }
   /**
    * UC3A: Add bank account manually
    */

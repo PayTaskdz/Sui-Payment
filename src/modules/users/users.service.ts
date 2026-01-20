@@ -9,8 +9,212 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private config: AppConfigService,
-    private gaianService: GaianService,
   ) { }
+
+  /**
+   * Calculate loyalty tier based on points
+   */
+  calculateLoyaltyTier(points: number): string {
+    if (points >= this.config.TIER_ELITE_THRESHOLD) return 'Elite';
+    if (points >= this.config.TIER_PREMIUM_THRESHOLD) return 'Premium';
+    if (points >= this.config.TIER_PLUS_THRESHOLD) return 'Plus';
+    return 'Standard';
+  }
+
+  /**
+   * Get commission rate based on tier
+   */
+  getCommissionRateForTier(tier: string): number {
+    switch (tier) {
+      case 'Elite': return this.config.TIER_ELITE_COMMISSION;
+      case 'Premium': return this.config.TIER_PREMIUM_COMMISSION;
+      case 'Plus': return this.config.TIER_PLUS_COMMISSION;
+      default: return this.config.TIER_STANDARD_COMMISSION;
+    }
+  }
+
+  /**
+   * Calculate points needed to reach next tier
+   */
+  getPointsToNextTier(currentPoints: number): number | null {
+    if (currentPoints >= this.config.TIER_ELITE_THRESHOLD) return null;
+    if (currentPoints >= this.config.TIER_PREMIUM_THRESHOLD) {
+      return this.config.TIER_ELITE_THRESHOLD - currentPoints;
+    }
+    if (currentPoints >= this.config.TIER_PLUS_THRESHOLD) {
+      return this.config.TIER_PREMIUM_THRESHOLD - currentPoints;
+    }
+    return this.config.TIER_PLUS_THRESHOLD - currentPoints;
+  }
+
+  /**
+   * Count user's transactions in different time periods
+   */
+  async getTransactionCounts(username: string) {
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [dailyCount, weeklyCount, monthlyCount, totalCount] = await Promise.all([
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+          createdAt: { gte: oneDayAgo },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+          createdAt: { gte: sevenDaysAgo },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+          createdAt: { gte: thirtyDaysAgo },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          username,
+          status: 'COMPLETED',
+        },
+      }),
+    ]);
+
+    return { dailyCount, weeklyCount, monthlyCount, totalCount };
+  }
+
+  /**
+   * Count successful referrals (referees with at least 3 completed transactions)
+   */
+  async countSuccessfulReferrals(userId: string): Promise<number> {
+    const referees = await this.prisma.user.findMany({
+      where: { referrerId: userId },
+      select: { id: true, username: true },
+    });
+
+    let successfulCount = 0;
+    for (const referee of referees) {
+      const count = await this.prisma.order.count({
+        where: {
+          username: referee.username,
+          status: 'COMPLETED',
+        },
+      });
+      if (count >= 3) successfulCount++;
+    }
+
+    return successfulCount;
+  }
+
+  /**
+   * Calculate rewards for a completed order
+   * - Transaction volume points: $50+ → +10 points
+   * - Transaction frequency bonuses
+   * - Referral bonus: +50 points when referee hits 3rd transaction
+   * - Commission for referrer based on their tier
+   */
+  async calculateRewards(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order || order.status !== 'COMPLETED') return;
+
+    // Lookup user by username
+    const user = await this.prisma.user.findFirst({
+      where: { username: order.username },
+      include: { referrer: true },
+    });
+
+    if (!user) return;
+
+    let pointsToAdd = 0;
+
+    // --- 1. TRANSACTION VOLUME POINTS ---
+    // $50+ → +10 points
+    const usdcValue = Number(order.expectedCryptoAmountRaw || '0') / 1_000_000;
+    if (usdcValue >= 50) {
+      pointsToAdd += this.config.POINTS_OVER_50_USD;
+    }
+
+    // --- 2. TRANSACTION FREQUENCY BONUSES ---
+    const counts = await this.getTransactionCounts(user.username || '');
+    
+    // 3+ transactions/day → +50 points
+    if (counts.dailyCount >= 3) {
+      pointsToAdd += this.config.POINTS_DAILY_3_TX;
+    }
+    
+    // 15+ transactions/week → +100 points
+    if (counts.weeklyCount >= 15) {
+      pointsToAdd += this.config.POINTS_WEEKLY_15_TX;
+    }
+    
+    // 50+ transactions/month → +300 points
+    if (counts.monthlyCount >= 50) {
+      pointsToAdd += this.config.POINTS_MONTHLY_50_TX;
+    }
+
+    // Add points to user
+    if (pointsToAdd > 0) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { loyaltyPoints: { increment: pointsToAdd } },
+      });
+    }
+
+    // --- 3. REFERRAL BONUS FOR REFERRER ---
+    // When this user (F1/referee) completes their 3rd transaction,
+    // grant +50 points to their referrer (F0)
+    if (user.referrerId && counts.totalCount === 3) {
+      const referrer = await this.prisma.user.findUnique({
+        where: { id: user.referrerId },
+      });
+
+      if (referrer) {
+        // Check if referrer hasn't exceeded 500 points from referrals
+        // We estimate this by: successful referrals * 50 points
+        const successfulReferrals = await this.countSuccessfulReferrals(user.referrerId);
+        const estimatedReferralPoints = successfulReferrals * this.config.POINTS_REFERRAL_BONUS;
+
+        if (estimatedReferralPoints < this.config.MAX_REFERRAL_POINTS_PER_PERIOD) {
+          await this.prisma.user.update({
+            where: { id: user.referrerId },
+            data: { loyaltyPoints: { increment: this.config.POINTS_REFERRAL_BONUS } },
+          });
+        }
+      }
+    }
+
+    // --- 4. COMMISSION FOR REFERRER (based on referrer's tier) ---
+    // Commission is calculated from platform fee collected (payout fee), converted to "$" using exchangeRate.
+    if (user.referrer) {
+      const feeFiat = Number((order as any).payoutFeeAmountFiat || 0);
+      const exchangeRate = Number(order.exchangeRate || 0);
+
+      if (feeFiat > 0 && exchangeRate > 0) {
+        const feeUsd = feeFiat / exchangeRate;
+
+        // Calculate referrer's tier based on their current points
+        const referrerTier = this.calculateLoyaltyTier(user.referrer.loyaltyPoints);
+        const commissionRate = this.getCommissionRateForTier(referrerTier);
+        const commission = feeUsd * commissionRate;
+
+        if (commission > 0) {
+          await this.prisma.user.update({
+            where: { id: user.referrer.id },
+            data: { commissionBalance: { increment: commission } },
+          });
+        }
+      }
+    }
+  }
 
   /**
    * Get user profile with wallets and KYC status
@@ -38,9 +242,14 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    // Call Gaian API for result kyc status
-    const gaianResponse = await this.gaianService.getUserInfo(user.walletAddress);
-    user.kycStatus = gaianResponse.kycStatus; // Update kyc status from Gaian
+
+    // Calculate dynamic tier based on current points
+    const tier = this.calculateLoyaltyTier(user.loyaltyPoints);
+    const commissionRate = this.getCommissionRateForTier(tier);
+    const pointsToNextTier = this.getPointsToNextTier(user.loyaltyPoints);
+
+    // Get transaction counts
+    const counts = await this.getTransactionCounts(user.username || '');
 
     // Find default wallet
     const defaultOnchain = user.onchainWallets.find((w: any) => w.isDefault);
@@ -56,9 +265,28 @@ export class UsersService {
       kycStatus: user.kycStatus,
       canTransfer: user.kycStatus === 'approved',
       isActive: user.isActive,
-      refereesCount: user._count.referees,
+      
+      // Loyalty & Tier Info (calculated dynamically)
+      loyaltyTier: tier,
       loyaltyPoints: user.loyaltyPoints,
+      pointsToNextTier,
+      commissionRate,
+      
+      // Transaction Info
+      completedTransactionsCount: counts.totalCount,
+      transactionStats: {
+        dailyCount: counts.dailyCount,
+        weeklyCount: counts.weeklyCount,
+        monthlyCount: counts.monthlyCount,
+      },
+      
+      // Referral Info
+      refereesCount: user._count.referees,
+      
+      // Balances
       commissionBalance: user.commissionBalance,
+      
+      // Wallets
       defaultWallet: defaultOnchain || defaultOffchain || null,
       onchainWallets: user.onchainWallets,
       offchainWallets: user.offchainWallets.map((wallet: any) => ({
@@ -73,6 +301,7 @@ export class UsersService {
         isDefault: wallet.isDefault,
         label: wallet.label,
       })),
+      
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -109,7 +338,42 @@ export class UsersService {
     };
   }
 
+  /**
+   * UC7: Change Username
+   */
+  async changeUsername(userId: string, newUsername: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
 
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { username: newUsername },
+    });
+
+    if (existingUser) {
+      throw new BusinessException(
+        'Username already taken',
+        'USERNAME_TAKEN',
+        409,
+      );
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { username: newUsername },
+    });
+
+    return {
+      userId: updatedUser.id,
+      username: updatedUser.username,
+      message: 'Username changed successfully',
+      updatedAt: updatedUser.updatedAt,
+    };
+  }
 
   /**
    * Lookup user by username (for transfers)
@@ -131,363 +395,192 @@ export class UsersService {
       throw new NotFoundException(`User with username '${username}' not found`);
     }
 
-    // Find default wallet
-    const defaultWallet = user.onchainWallets[0] || user.offchainWallets[0] || null;
+    // Find default wallet - prioritize onchain, then offchain
+    const defaultOnchain = user.onchainWallets[0];
+    const defaultOffchain = user.offchainWallets[0];
+
+    let defaultWallet = null;
+    if (defaultOnchain) {
+      defaultWallet = {
+        id: defaultOnchain.id,
+        type: 'onchain' as const,
+        address: defaultOnchain.address,
+        chain: defaultOnchain.chain,
+      };
+    } else if (defaultOffchain) {
+      defaultWallet = {
+        id: defaultOffchain.id,
+        type: 'offchain' as const,
+        bankName: defaultOffchain.bankName,
+        accountNumber: defaultOffchain.accountNumber,
+        accountName: defaultOffchain.accountName,
+        qrString: defaultOffchain.qrString, // Include qrString for payment API
+      };
+    }
 
     return {
       userId: user.id,
       username: user.username,
+      walletAddress: user.walletAddress,
       kycStatus: user.kycStatus,
-      canReceiveTransfer: user.kycStatus === 'approved' || !!user.onchainWallets[0], // Onchain không cần KYC
-      defaultWallet: defaultWallet ? {
-        id: defaultWallet.id,
-        type: 'address' in defaultWallet ? 'onchain' : 'offchain',
-        address: 'address' in defaultWallet ? defaultWallet.address : null,
-        chain: 'chain' in defaultWallet ? defaultWallet.chain : null,
-        bankName: 'bankName' in defaultWallet ? defaultWallet.bankName : null,
-        accountNumber: 'accountNumber' in defaultWallet ? defaultWallet.accountNumber : null,
-      } : null,
+      canReceiveTransfer: user.kycStatus === 'approved' || !!defaultOnchain,
+      defaultWallet,
     };
   }
-  //Referral system
-  async onKycApproved(userId: string) {
-  // Step 1: Get F1 user
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId }
-  });
-  
-  if (!user) return { bonusAwarded: false };
-  
-  // Step 2: Check if F1 has referrer (F0)
-  if (!user.referrerId) {
-    return { bonusAwarded: false }; // Không có F0
-  }
-  
-  // Step 3: Award KYC bonus to F1 and log to ReferralReward
-  const bonusPoints = this.config.referralKycBonus; // 50
-  
-  await this.prisma.$transaction([
-    // Update F1's loyalty points
-    this.prisma.user.update({
-      where: { id: userId, kycStatus: 'approved' },
-      data: {
-        loyaltyPoints: { increment: bonusPoints }
-      }
-    }),
-    // Log reward history for 6-month tracking
-    this.prisma.referralReward.create({
-      data: {
-        referrerId: user.referrerId!,
-        refereeId: userId,
-        points: bonusPoints,
-        reason: 'KYC_APPROVED'
-      }
-    })
-  ]);
-  
-  return {
-    bonusAwarded: true,
-    points: bonusPoints
-  };
-}
-  //F0 complete 3 transactions first
-  async onOrderCompleted(orderId: string) {
-  // Step 1: Get order info
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId }
-  });
-  
-  if (!order || order.status !== 'COMPLETED') {
-    return { referrerBonusAwarded: false };
-  }
-  
-  // Step 2: Get F1 user
-  const f1User = await this.prisma.user.findFirst({
-    where: { walletAddress: order.payerWalletAddress },
-    include: { referrer: true }
-  });
-  
-  if (!f1User || !f1User.referrer) {
-    return { referrerBonusAwarded: false }; // F1 không có F0
-  }
-  
-  // Step 3: Count F1's completed offchain orders
-  const completedOrders = await this.prisma.order.count({
-    where: {
-      payerWalletAddress: f1User.walletAddress,
-      status: 'COMPLETED'
+  async checkUsernameAvailability(username: string) {
+    const clean = (username || '').trim().toLowerCase();
+
+    if (clean.length < 3 || clean.length > 30) {
+      return { available: false };
     }
-  });
-  
-  const requiredTx = this.config.referralOffchainTxRequired; // 3
-  
-  // Step 4: Check if exactly 3 transactions (chỉ thưởng 1 lần)
-  if (completedOrders !== requiredTx) {
-    return { referrerBonusAwarded: false };
-  }
-  
-  // Step 5: Check F0's point limit for current period
-  const canReceiveBonus = await this.checkReferrerPointsLimit(f1User.referrer.id);
-  
-  if (!canReceiveBonus) {
-    return { 
-      referrerBonusAwarded: false, 
-      reason: 'F0 đã đạt giới hạn 500 points/6 tháng'
-    };
-  }
-  
-  // Step 6: Award bonus to F0 and log to ReferralReward
-  const bonusPoints = this.config.referralF1CompletionBonus; // 50
-  
-  await this.prisma.$transaction([
-    // Update F0's loyalty points
-    this.prisma.user.update({
-      where: { id: f1User.referrer.id },
-      data: {
-        loyaltyPoints: { increment: bonusPoints }
-      }
-    }),
-    // Log reward history for 6-month tracking
-    this.prisma.referralReward.create({
-      data: {
-        referrerId: f1User.referrer.id,
-        refereeId: f1User.id,
-        points: bonusPoints,
-        reason: 'F1_COMPLETED_3_TX'
-      }
-    })
-  ]);
-  
-  return {
-    referrerBonusAwarded: true,
-    referrerPoints: bonusPoints,
-    referrerId: f1User.referrer.id
-  };
-}
 
-  /**
-   * Check if referrer (F0) can receive more bonus points
-   * Limit: 500 points per 6 months
-   */
-  private async checkReferrerPointsLimit(referrerId: string): Promise<boolean> {
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    if (!/^[a-z0-9_]+$/.test(clean)) {
+      return { available: false };
+    }
 
-    // Sum all bonus points received in the last 6 months
-    const totalPoints = await this.prisma.referralReward.aggregate({
-      where: {
-        referrerId: referrerId,
-        createdAt: {
-          gte: sixMonthsAgo
-        }
-      },
-      _sum: {
-        points: true
-      }
+    const existing = await this.prisma.user.findUnique({
+      where: { username: clean },
+      select: { id: true },
     });
 
-    const currentTotal = totalPoints._sum.points || 0;
-    const limit = this.config.referralPointsLimitPerPeriod; // 500
+    return { available: !existing };
+  }
 
-    return currentTotal < limit;
+  async completeOnboarding(
+    userId: string,
+    dto: { username: string; email?: string; referralUsername?: string },
+  ) {
+    const username = dto.username.trim().toLowerCase();
+
+    if (username.length < 3 || username.length > 30 || !/^[a-z0-9_]+$/.test(username)) {
+      throw new BusinessException('Invalid username', 'USERNAME_INVALID', 400);
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const existing = await this.prisma.user.findUnique({ where: { username } });
+    if (existing && existing.id !== userId) {
+      throw new BusinessException('Username already taken', 'USERNAME_TAKEN', 409);
+    }
+
+    let referrerId: string | null = null;
+    if (dto.referralUsername) {
+      const referralUsername = dto.referralUsername.trim().toLowerCase();
+      if (!/^[a-z0-9_]+$/.test(referralUsername)) {
+        throw new BusinessException('Invalid referral username', 'REFERRAL_USERNAME_INVALID', 400);
+      }
+
+      const referrer = await this.prisma.user.findUnique({ where: { username: referralUsername } });
+      if (!referrer) {
+        throw new BusinessException('Referrer not found', 'REFERRER_NOT_FOUND', 404);
+      }
+      if (referrer.id === userId) {
+        throw new BusinessException('Cannot refer yourself', 'REFERRER_SELF', 400);
+      }
+      referrerId = referrer.id;
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        username,
+        email: dto.email ?? user.email,
+        referrerId: referrerId ?? user.referrerId,
+      },
+    });
+
+    return {
+      userId: updated.id,
+      username: updated.username,
+      email: updated.email,
+      referrerId: updated.referrerId,
+      updatedAt: updated.updatedAt,
+    };
   }
 
   /**
-   * Get referral statistics for a user
-   * Shows both F0 rewards (as referrer) and F1 rewards (as referee)
+   * Get loyalty stats for user
    */
-  async getReferralStats(userId: string) {
+  async getLoyaltyStats(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const tier = this.calculateLoyaltyTier(user.loyaltyPoints);
+    const commissionRate = this.getCommissionRateForTier(tier);
+    const pointsToNextTier = this.getPointsToNextTier(user.loyaltyPoints);
+
+    const counts = await this.getTransactionCounts(user.username || '');
+    const successfulReferrals = await this.countSuccessfulReferrals(userId);
+    const estimatedReferralPoints = successfulReferrals * this.config.POINTS_REFERRAL_BONUS;
+
+    return {
+      currentTier: tier,
+      loyaltyPoints: user.loyaltyPoints,
+      pointsToNextTier,
+      commissionRate,
+      transactionStats: {
+        dailyCount: counts.dailyCount,
+        weeklyCount: counts.weeklyCount,
+        monthlyCount: counts.monthlyCount,
+      },
+      referralInfo: {
+        successfulReferrals,
+        estimatedPointsFromReferrals: estimatedReferralPoints,
+        maxReferralPoints: this.config.MAX_REFERRAL_POINTS_PER_PERIOD,
+        referralPointsRemaining: this.config.MAX_REFERRAL_POINTS_PER_PERIOD - estimatedReferralPoints,
+      },
+    };
+  }
+
+  /**
+   * Get referral info for user
+   */
+  async getReferralInfo(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        referrer: {
-          select: {
-            id: true,
-            username: true
-          }
-        },
-        _count: {
-          select: {
-            referees: true
-          }
-        }
-      }
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-    // Get F0 rewards (rewards I received from my F1 referrals)
-    const f0Rewards = await this.prisma.referralReward.aggregate({
-      where: {
-        referrerId: userId,
-        createdAt: {
-          gte: sixMonthsAgo
-        }
-      },
-      _sum: {
-        points: true
-      },
-      _count: true
-    });
-
-    // Get F1 rewards (rewards I received as a referee)
-    const f1Rewards = await this.prisma.referralReward.aggregate({
-      where: {
-        refereeId: userId,
-        createdAt: {
-          gte: sixMonthsAgo
-        }
-      },
-      _sum: {
-        points: true
-      },
-      _count: true
-    });
-
-    const f0PointsEarned = f0Rewards._sum.points || 0;
-    const f0PointsLimit = this.config.referralPointsLimitPerPeriod; // 500
-    const f0PointsRemaining = Math.max(0, f0PointsLimit - f0PointsEarned);
-
-    return {
-      userId: user.id,
-      username: user.username,
-      
-      // User's role in referral system
-      referralRole: {
-        isF0: user._count.referees > 0, // Has referred others
-        isF1: !!user.referrerId, // Was referred by someone
-        referrer: user.referrer || null
-      },
-
-      // Current balances
-      currentBalances: {
-        loyaltyPoints: user.loyaltyPoints,
-        commissionBalance: user.commissionBalance
-      },
-
-      // F0 stats (as a referrer)
-      asReferrer: {
-        totalReferees: user._count.referees,
-        pointsEarned6Months: f0PointsEarned,
-        pointsLimit6Months: f0PointsLimit,
-        pointsRemaining: f0PointsRemaining,
-        rewardCount6Months: f0Rewards._count
-      },
-
-      // F1 stats (as a referee)
-      asReferee: {
-        pointsEarned6Months: f1Rewards._sum.points || 0,
-        rewardCount6Months: f1Rewards._count
-      },
-
-      // Config values for reference
-      config: {
-        kycBonus: this.config.referralKycBonus,
-        f1CompletionBonus: this.config.referralF1CompletionBonus,
-        requiredOffchainTx: this.config.referralOffchainTxRequired
-      }
-    };
-  }
-
-  /**
-   * Get referral reward history for a user
-   * Shows both rewards received (as F0) and rewards earned (as F1)
-   */
-  async getReferralHistory(userId: string, limit = 50) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId }
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Rewards where user is the referrer (F0)
-    const asReferrer = await this.prisma.referralReward.findMany({
-      where: { referrerId: userId },
-      include: {
-        referee: {
+        referees: {
           select: {
             id: true,
             username: true,
-            walletAddress: true
-          }
-        }
+            createdAt: true,
+          },
+        },
       },
-      orderBy: { createdAt: 'desc' },
-      take: limit
     });
 
-    // Rewards where user is the referee (F1)
-    const asReferee = await this.prisma.referralReward.findMany({
-      where: { refereeId: userId },
-      include: {
-        referrer: {
-          select: {
-            id: true,
-            username: true,
-            walletAddress: true
-          }
-        }
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit
-    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const totalReferrals = user.referees.length;
+
+    // Get transaction counts for each referee
+    const refereesWithStats = await Promise.all(
+      user.referees.map(async (referee) => {
+        const count = await this.prisma.order.count({
+          where: {
+            username: referee.username,
+            status: 'COMPLETED',
+          },
+        });
+        return {
+          username: referee.username,
+          registeredAt: referee.createdAt,
+          transactionCount: count,
+          bonusGranted: count >= 3, // Bonus granted when referee hits 3 transactions
+        };
+      })
+    );
+
+    const successfulReferrals = refereesWithStats.filter(r => r.bonusGranted).length;
+    const estimatedReferralPoints = successfulReferrals * this.config.POINTS_REFERRAL_BONUS;
 
     return {
-      userId: user.id,
-      username: user.username,
-      
-      // Rewards I received from my F1 referrals
-      rewardsAsReferrer: asReferrer.map(reward => ({
-        id: reward.id,
-        points: reward.points,
-        reason: reward.reason,
-        reasonText: this.getReasonText(reward.reason),
-        referee: {
-          id: reward.refereeId,
-          username: reward.referee?.username,
-          walletAddress: reward.referee?.walletAddress
-        },
-        createdAt: reward.createdAt
-      })),
-
-      // Rewards I received as a referee
-      rewardsAsReferee: asReferee.map(reward => ({
-        id: reward.id,
-        points: reward.points,
-        reason: reward.reason,
-        reasonText: this.getReasonText(reward.reason),
-        referrer: {
-          id: reward.referrerId,
-          username: reward.referrer?.username,
-          walletAddress: reward.referrer?.walletAddress
-        },
-        createdAt: reward.createdAt
-      })),
-
-      summary: {
-        totalRewardsAsReferrer: asReferrer.length,
-        totalPointsAsReferrer: asReferrer.reduce((sum, r) => sum + r.points, 0),
-        totalRewardsAsReferee: asReferee.length,
-        totalPointsAsReferee: asReferee.reduce((sum, r) => sum + r.points, 0)
-      }
+      totalReferrals,
+      successfulReferrals,
+      estimatedPointsFromReferrals: estimatedReferralPoints,
+      maxReferralPoints: this.config.MAX_REFERRAL_POINTS_PER_PERIOD,
+      referees: refereesWithStats,
     };
-  }
-
-  /**
-   * Helper to convert reason code to human-readable text
-   */
-  private getReasonText(reason: string): string {
-    const reasonMap: Record<string, string> = {
-      'KYC_APPROVED': 'KYC approved bonus',
-      'F1_COMPLETED_3_TX': 'F1 completed 3 transactions bonus'
-    };
-    return reasonMap[reason] || reason;
   }
 }

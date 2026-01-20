@@ -26,3 +26,4 @@ Thumbs.db
 zklogin-data/*.zkey
 zklogin-data/*.vkey
 zklogin-ceremony-contributions/
+FE

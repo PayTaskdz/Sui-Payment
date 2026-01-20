@@ -19,6 +19,132 @@ export class PaymentsService {
     private readonly suiRpc: SuiRpcService,
   ) { }
 
+  private getLoyaltyTier(points: number): 'STANDARD' | 'PLUS' | 'PREMIUM' | 'ELITE' {
+    const elite = this.configService.get<number>('TIER_ELITE_THRESHOLD', 1150);
+    const premium = this.configService.get<number>('TIER_PREMIUM_THRESHOLD', 700);
+    const plus = this.configService.get<number>('TIER_PLUS_THRESHOLD', 300);
+
+    if (points >= elite) return 'ELITE';
+    if (points >= premium) return 'PREMIUM';
+    if (points >= plus) return 'PLUS';
+    return 'STANDARD';
+  }
+
+  private getPayoutFeeRate(): number {
+    // Percent expressed in env (e.g. 2 means 2%)
+    const raw = this.configService.get<string>('PAYOUT_FEE_PERCENT') ?? '2';
+    const pct = Number(raw);
+    if (!Number.isFinite(pct) || pct < 0) {
+      throw new BadRequestException('INVALID_PAYOUT_FEE_PERCENT');
+    }
+    return pct / 100;
+  }
+private static rawToDecimal(raw: string, decimals: number): number {
+    if (!isRawIntString(raw)) throw new BadRequestException('INVALID_RAW_AMOUNT');
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new BadRequestException('INVALID_RAW_AMOUNT');
+    return n / Math.pow(10, decimals);
+  }
+
+  private static getVnDayWindow(now = new Date()): { start: Date; end: Date } {
+    // VN timezone is UTC+7
+    const vnNowMs = now.getTime() + 7 * 60 * 60 * 1000;
+    const vnNow = new Date(vnNowMs);
+    const startVn = new Date(vnNow);
+    startVn.setUTCHours(0, 0, 0, 0);
+    const startUtcMs = startVn.getTime() - 7 * 60 * 60 * 1000;
+    return { start: new Date(startUtcMs), end: now };
+  }
+
+  private async sumCompletedUsdcForUserInVnDay(args: { payerWalletAddress: string; usdcDecimals: number }): Promise<number> {
+    const { start, end } = PaymentsService.getVnDayWindow();
+
+    const rows = await this.prisma.order.findMany({
+      where: {
+        payerWalletAddress: args.payerWalletAddress,
+        bankTransferStatus: 'COMPLETED',
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      },
+      select: { expectedCryptoAmountRaw: true },
+    });
+
+    return rows.reduce((sum, r) => sum + PaymentsService.rawToDecimal(r.expectedCryptoAmountRaw, args.usdcDecimals), 0);
+  }
+
+  private async sumCompletedNonKycUsdcGlobalInVnDay(args: { usdcDecimals: number }): Promise<number> {
+    const { start, end } = PaymentsService.getVnDayWindow();
+
+    const nonKycWallets = await this.prisma.user.findMany({
+      where: {
+        kycStatus: { not: 'approved' },
+      },
+      select: { walletAddress: true },
+    });
+
+    const walletAddresses = nonKycWallets.map(w => w.walletAddress).filter(Boolean);
+    if (walletAddresses.length === 0) return 0;
+
+    const rows = await this.prisma.order.findMany({
+      where: {
+        payerWalletAddress: { in: walletAddresses },
+        bankTransferStatus: 'COMPLETED',
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      },
+      select: { expectedCryptoAmountRaw: true },
+    });
+
+    return rows.reduce((sum, r) => sum + PaymentsService.rawToDecimal(r.expectedCryptoAmountRaw, args.usdcDecimals), 0);
+  }
+
+  private enforceThresholds(args: {
+    usdcAmount: number;
+    kycApproved: boolean;
+    recipientCountry?: string;
+    payerWalletAddress: string;
+    usdcDecimals: number;
+  }) {
+    return (async () => {
+      const usdc = args.usdcAmount;
+
+      const isVn = (args.recipientCountry ?? '').toUpperCase() === 'VN';
+
+      // KYC-ed user thresholds
+      if (args.kycApproved) {
+        if (usdc < 0.7) throw new BadRequestException('MIN_AMOUNT_PER_TX_EXCEEDED');
+        if (usdc > 500) throw new BadRequestException('MAX_AMOUNT_PER_TX_EXCEEDED');
+
+        const daySum = await this.sumCompletedUsdcForUserInVnDay({
+          payerWalletAddress: args.payerWalletAddress,
+          usdcDecimals: args.usdcDecimals,
+        });
+
+        if (daySum + usdc > 5000) throw new BadRequestException('MAX_AMOUNT_PER_DAY_EXCEEDED');
+        return;
+      }
+
+      // Non-KYC rules: only allow if recipient is VN
+      if (!isVn) throw new BadRequestException('KYC_REQUIRED');
+
+      if (usdc >= 4) throw new BadRequestException('NON_KYC_MAX_AMOUNT_PER_TX_EXCEEDED');
+
+      const userDaySum = await this.sumCompletedUsdcForUserInVnDay({
+        payerWalletAddress: args.payerWalletAddress,
+        usdcDecimals: args.usdcDecimals,
+      });
+
+      if (userDaySum + usdc > 20) throw new BadRequestException('NON_KYC_MAX_AMOUNT_PER_DAY_EXCEEDED');
+
+      const globalNonKycSum = await this.sumCompletedNonKycUsdcGlobalInVnDay({ usdcDecimals: args.usdcDecimals });
+      if (globalNonKycSum + usdc > 4000) throw new BadRequestException('TENANT_NON_KYC_MAX_AMOUNT_PER_DAY_EXCEEDED');
+    })();
+  }
+
   private toOrderResponse(order: any): OrderResponseDto {
     return {
       id: order.id,
@@ -31,8 +157,13 @@ export class PaymentsService {
       userPaymentVerifiedAt: order.userPaymentVerifiedAt,
       fiatAmount: String(order.fiatAmount),
       fiatCurrency: order.fiatCurrency,
-      hiddenWalletFeeRate: order.hiddenWalletFeeRate ? String(order.hiddenWalletFeeRate) : null,
-      hiddenWalletFeeAmount: order.hiddenWalletFeeAmount ? String(order.hiddenWalletFeeAmount) : null,
+      platformFee: order.payoutFeeRate ? {
+        feePercent: String(Number(order.payoutFeeRate) * 100),
+        feeRate: Number(order.payoutFeeRate),
+        feeAmount: Number(order.payoutFeeAmountFiat),
+        baseFiatAmount: Number(order.payoutFeeBaseFiatAmount),
+        finalFiatAmount: Number(order.payoutFeeFinalFiatAmount),
+      } : undefined,
       status: order.status,
       bankTransferStatus: order.bankTransferStatus,
       bankTransactionReference: order.bankTransactionReference,
@@ -54,14 +185,31 @@ export class PaymentsService {
   }
 
   async createOrder(dto: CreateOrderDto): Promise<CreateOrderResponseDto> {
-    const target = await this.prisma.paymentTarget.findUnique({
-      where: { username: dto.username },
+    // Defaults
+    const fiatCurrency = dto.fiatCurrency || 'VND';
+// Payer
+    const payer = await this.prisma.user.findFirst({
+      where: { walletAddress: dto.payerWalletAddress },
     });
-
-    if (!target || !target.isActive) {
-      throw new NotFoundException('USERNAME_NOT_FOUND');
+    if (!payer) {
+      throw new NotFoundException('PAYER_NOT_FOUND');
     }
 
+    const country = dto.country || 'VN';
+
+    // Thresholds
+    const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
+    await this.enforceThresholds({
+      usdcAmount: dto.usdcAmount,
+      kycApproved: payer.kycStatus === 'approved',
+      recipientCountry: dto.recipientCountry,
+      payerWalletAddress: dto.payerWalletAddress,
+      usdcDecimals,
+    });
+    const cryptoCurrency = 'USDC';
+    const token = 'USDC';
+
+    // Config
     const partnerWalletAddress = this.configService.get<string>('PARTNER_SUI_ADDRESS');
     if (!partnerWalletAddress) {
       throw new BadRequestException('PARTNER_SUI_ADDRESS_NOT_CONFIGURED');
@@ -72,14 +220,8 @@ export class PaymentsService {
       throw new BadRequestException('SUI_USDC_COIN_TYPE_NOT_CONFIGURED');
     }
 
-    const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
 
-    const feePercentStr = this.configService.get<string>('HIDDEN_WALLET_FEE_PERCENT') ?? '0.2';
-    const feeRate = Number(feePercentStr) / 100;
-    if (!Number.isFinite(feeRate) || feeRate < 0) {
-      throw new BadRequestException('INVALID_HIDDEN_WALLET_FEE_PERCENT');
-    }
-
+    // Idempotency check
     if (dto.clientRequestId) {
       const existing = await this.prisma.order.findUnique({
         where: {
@@ -91,84 +233,80 @@ export class PaymentsService {
       });
 
       if (existing) {
-        const existingFeeRate = existing.hiddenWalletFeeRate ? Number(existing.hiddenWalletFeeRate) : feeRate;
-        const existingFeePercent = String(existingFeeRate * 100);
-
-        const baseCryptoAmountRaw = existing.hiddenWalletFeeAmount
-          ? String(Number(existing.expectedCryptoAmountRaw) - Number(existing.hiddenWalletFeeAmount))
-          : existing.expectedCryptoAmountRaw;
+        const payoutFeeRate = this.getPayoutFeeRate();
+        const baseFiatAmount = Number(existing.fiatAmount);
+        const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
+        const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
 
         return {
           id: existing.id,
           status: existing.status,
           exchangeInfo: (existing.gaianRaw as any)?.exchangeInfo ?? null,
-          hiddenWallet: {
-            feePercent: existingFeePercent,
-            feeRate: existingFeeRate,
-            feeAmount: existing.hiddenWalletFeeAmount ? Number(existing.hiddenWalletFeeAmount) : 0,
-            amountBeforeFee: Number(baseCryptoAmountRaw),
-            amountWithFee: Number(existing.expectedCryptoAmountRaw),
+          platformFee: {
+            feePercent: String(payoutFeeRate * 100),
+            feeRate: payoutFeeRate,
+            feeAmount: feeFiatAmount,
+            baseFiatAmount,
+            finalFiatAmount,
+            cryptoEquivalent: null as any,
           },
           paymentInstruction: {
             toAddress: existing.partnerWalletAddress,
             coinType: existing.coinType,
-            totalCrypto: (Number(existing.expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(4),
+            totalCrypto: (Number(existing.expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(usdcDecimals),
             totalCryptoRaw: existing.expectedCryptoAmountRaw,
-            totalPayout: Number(existing.fiatAmount),
+            totalPayout: finalFiatAmount,
           },
           payout: {
-            username: target.username,
-            fiatCurrency: target.fiatCurrency,
+            fiatCurrency: existing.fiatCurrency,
           },
         };
       }
     }
 
-    const exchangeResp = await this.gaian.calculateExchange({
-      amount: dto.amount,
-      country: dto.country,
+    // Step 1: Get exchange rate by probing with a sample fiat amount
+    const probeFiatAmount = fiatCurrency === 'PHP' ? 100 : 100000; // 100 PHP or 100k VND
+    const probeResp = await this.gaian.calculateExchange({
+      amount: probeFiatAmount,
+      country,
       chain: 'Solana',
-      token: dto.token,
+      token,
     });
 
-    if (!exchangeResp?.success || !exchangeResp?.exchangeInfo?.cryptoAmount) {
+    if (!probeResp?.success || !probeResp?.exchangeInfo?.exchangeRate) {
       throw new BadRequestException('GAIAN_CALCULATE_EXCHANGE_FAILED');
     }
 
-    const cryptoAmount = String(exchangeResp.exchangeInfo.cryptoAmount);
-    const gaianExpectedCryptoAmountRaw = isRawIntString(cryptoAmount)
-      ? cryptoAmount
-      : decimalToRawAmount(cryptoAmount, usdcDecimals);
+    const exchangeRate = Number(probeResp.exchangeInfo.exchangeRate);
 
-    const gaianExpected = Number(gaianExpectedCryptoAmountRaw);
+    // Step 2: User transfers the exact USDC amount they input.
+    const usdcAmountDecimal = dto.usdcAmount;
+    const expectedCryptoAmountRaw = decimalToRawAmount(String(usdcAmountDecimal), usdcDecimals);
 
-    const expectedCryptoAmountRaw = String(
-      Math.ceil(gaianExpected / (1 - feeRate)),
-    );
+    // Step 3: Calculate fiat values based on the initial USDC amount.
+    // exchangeRate = fiat per 1 USDC (e.g., 25500 VND per 1 USDC)
+    const baseFiatAmount = Math.round(usdcAmountDecimal * exchangeRate);
+    const payoutFeeRate = this.getPayoutFeeRate(); // e.g. 0.02
+    const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
+    const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount); // This is what the recipient gets.
 
-    const hiddenWalletFeeAmountRaw = Math.max(0, Number(expectedCryptoAmountRaw) - gaianExpected);
-
-    const hiddenWalletFeeAmount = hiddenWalletFeeAmountRaw / Math.pow(10, usdcDecimals);
-
-    const exchangeRate = exchangeResp.exchangeInfo.exchangeRate
-      ? Number(exchangeResp.exchangeInfo.exchangeRate)
-      : undefined;
-
+    // Create order with qrString directly
     const order = await this.prisma.order.create({
       data: {
-        username: dto.username,
-        paymentTargetId: target.id,
+        qrString: dto.qrString,
         payerWalletAddress: dto.payerWalletAddress,
         partnerWalletAddress,
-        cryptoCurrency: dto.cryptoCurrency,
+        cryptoCurrency,
         coinType,
-        expectedCryptoAmountRaw,
-        fiatAmount: dto.amount,
-        fiatCurrency: dto.fiatCurrency,
-        hiddenWalletFeeRate: feeRate,
-        hiddenWalletFeeAmount: hiddenWalletFeeAmount,
+        expectedCryptoAmountRaw, // Full USDC amount
+        fiatAmount: finalFiatAmount, // Final fiat amount for Gaian
+        fiatCurrency,
         exchangeRate,
-        gaianRaw: exchangeResp,
+        payoutFeeRate: payoutFeeRate,
+        payoutFeeAmountFiat: feeFiatAmount,
+        payoutFeeBaseFiatAmount: baseFiatAmount,
+        payoutFeeFinalFiatAmount: finalFiatAmount,
+        gaianRaw: { note: "Exchange info is based on probed rate", probeResp },
         clientRequestId: dto.clientRequestId,
       },
     });
@@ -176,24 +314,32 @@ export class PaymentsService {
     return {
       id: order.id,
       status: order.status,
-      exchangeInfo: exchangeResp.exchangeInfo,
-      hiddenWallet: {
-        feePercent: feePercentStr,
-        feeRate,
-        feeAmount: hiddenWalletFeeAmountRaw,
-        amountBeforeFee: Number(gaianExpectedCryptoAmountRaw),
-        amountWithFee: Number(expectedCryptoAmountRaw),
+      exchangeInfo: {
+        cryptoAmount: usdcAmountDecimal,
+        fiatAmount: finalFiatAmount,
+        fiatCurrency: fiatCurrency,
+        cryptoCurrency: cryptoCurrency,
+        exchangeRate: exchangeRate,
+        feeAmount: Number(probeResp.exchangeInfo.feeAmount ?? 0),
+        timestamp: probeResp.exchangeInfo.timestamp,
       },
+      platformFee: {
+        feePercent: String(payoutFeeRate * 100),
+        feeRate: payoutFeeRate,
+        feeAmount: feeFiatAmount,
+        baseFiatAmount: baseFiatAmount,
+        finalFiatAmount: finalFiatAmount,
+        cryptoEquivalent: Number((feeFiatAmount / exchangeRate).toFixed(usdcDecimals)),
+      } as any,
       paymentInstruction: {
         toAddress: partnerWalletAddress,
         coinType,
-        totalCrypto: (Number(expectedCryptoAmountRaw) / Math.pow(10, usdcDecimals)).toFixed(4),
+        totalCrypto: String(usdcAmountDecimal),
         totalCryptoRaw: expectedCryptoAmountRaw,
-        totalPayout: dto.amount,
+        totalPayout: finalFiatAmount,
       },
       payout: {
-        username: target.username,
-        fiatCurrency: target.fiatCurrency,
+        fiatCurrency,
       },
     };
   }
@@ -201,9 +347,9 @@ export class PaymentsService {
 
 
   async confirmUserPayment(orderId: string, dto: ConfirmUserPaymentDto): Promise<OrderResponseDto> {
-    // Start a transaction to handle both verification and Gaian call atomically
+    // Start a transaction with extended timeout (getTransaction retry can take up to 10s)
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // 1. Get the order with pessimistic locking to prevent concurrent updates
+      // 1. Get the order
       const order = await tx.order.findUnique({
         where: { id: orderId },
         include: { paymentTarget: true },
@@ -218,13 +364,15 @@ export class PaymentsService {
         return this.toOrderResponse(order);
       }
 
-      if (!order.paymentTarget) {
-        throw new BadRequestException('PAYMENT_TARGET_NOT_FOUND');
+      // 3. Validate qrString exists (either from order directly or from paymentTarget)
+      const qrString = order.qrString || order.paymentTarget?.qrString;
+      if (!qrString) {
+        throw new BadRequestException('QR_STRING_NOT_FOUND');
       }
 
       let updatedOrder = order;
 
-      // 3. Handle on-chain verification if needed
+      // 4. Handle on-chain verification if needed
       if (order.status === 'AWAITING_USER_PAYMENT') {
         const verify = await this.suiRpc.verifyTransfer(
           dto.userPaymentTxDigest,
@@ -249,7 +397,7 @@ export class PaymentsService {
         });
       }
 
-      // 4. If we're in a state to call Gaian, do it now
+      // 5. If we're in a state to call Gaian, do it now
       if ((updatedOrder.status as any) === 'USER_PAYMENT_VERIFIED' || (updatedOrder.status as any) === 'CONFIRMING_GAIAN_PAYMENT') {
         try {
           // Mark as processing to prevent duplicate calls
@@ -258,9 +406,9 @@ export class PaymentsService {
             data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
           });
 
-          // Call Gaian
+          // Call Gaian with qrString from order (or fallback to paymentTarget)
           const gaianResp = await this.gaian.placeOrderPrefund({
-            qrString: updatedOrder.paymentTarget!.qrString,
+            qrString,
             amount: Number(updatedOrder.fiatAmount),
             fiatCurrency: updatedOrder.fiatCurrency,
             cryptoCurrency: updatedOrder.cryptoCurrency,
@@ -293,8 +441,11 @@ export class PaymentsService {
         }
       }
 
-      // 5. If we get here, either we didn't need to do anything or everything succeeded
+      // 6. If we get here, either we didn't need to do anything or everything succeeded
       return this.toOrderResponse(updatedOrder);
+    }, {
+      timeout: 60000, // 60 seconds for blockchain verification retry
+      maxWait: 60000, // 60 seconds max wait to acquire transaction
     });
   }
 
@@ -330,94 +481,55 @@ export class PaymentsService {
     return resp.exchangeInfo;
   }
 
-  async quote(dto: {
-    username: string;
-    direction: string;
-    fiatAmount?: number;
-    usdcAmount?: string;
-    country: string;
-    token: string;
-  }) {
-    const target = await this.prisma.paymentTarget.findUnique({
-      where: { username: dto.username },
-    });
-
-    if (!target || !target.isActive) {
-      throw new NotFoundException('USERNAME_NOT_FOUND');
-    }
-
+  async quote(dto: QuoteDto) {
     const usdcDecimals = Number(this.configService.get<string>('SUI_USDC_DECIMALS') ?? '6');
 
-    if (dto.direction === 'FIAT_TO_USDC') {
-      if (typeof dto.fiatAmount !== 'number') {
-        throw new BadRequestException('FIAT_AMOUNT_REQUIRED');
-      }
-
-      const exchangeInfo = await this.calcExchangeFiatToUsdc({
-        fiatAmount: dto.fiatAmount,
-        country: dto.country,
-        token: dto.token,
-      });
-
-      const cryptoAmount = String(exchangeInfo.cryptoAmount);
-      const usdcAmountRaw = isRawIntString(cryptoAmount)
-        ? cryptoAmount
-        : decimalToRawAmount(cryptoAmount, usdcDecimals);
-
-      return {
-        success: true,
-        direction: dto.direction,
-        username: target.username,
-        fiatCurrency: exchangeInfo.fiatCurrency,
-        fiatAmount: exchangeInfo.fiatAmount,
-        cryptoCurrency: exchangeInfo.cryptoCurrency,
-        usdcAmount: cryptoAmount,
-        usdcAmountRaw,
-        exchangeRate: exchangeInfo.exchangeRate,
-        feeAmount: exchangeInfo.feeAmount,
-        timestamp: exchangeInfo.timestamp,
-        gaianExchangeInfo: exchangeInfo,
-      };
+    // Only support USDC_TO_FIAT for now (1 USDC → VND recipient gets)
+    if (dto.direction !== 'USDC_TO_FIAT' || !dto.usdcAmount) {
+      throw new BadRequestException('ONLY_USDC_TO_FIAT_SUPPORTED');
     }
 
-    if (dto.direction === 'USDC_TO_FIAT') {
-      if (!dto.usdcAmount) {
-        throw new BadRequestException('USDC_AMOUNT_REQUIRED');
-      }
+    // Match createOrder logic: use 100k VND for probe to get exchange rate
+    const probeFiatAmount = dto.country.toUpperCase() === 'PH' ? 100 : 100000;
+    const probe = await this.calcExchangeFiatToUsdc({
+      fiatAmount: probeFiatAmount,
+      country: dto.country,
+      token: dto.token,
+    });
 
-      const probeFiatAmount = target.fiatCurrency === 'PHP' ? 10 : 50000;
-      const probe = await this.calcExchangeFiatToUsdc({
-        fiatAmount: probeFiatAmount,
-        country: dto.country,
-        token: dto.token,
-      });
-
-      const exchangeRate = PaymentsService.toNumberStrict(probe.exchangeRate, 'INVALID_EXCHANGE_RATE');
-      const usdc = PaymentsService.toNumberStrict(dto.usdcAmount, 'INVALID_USDC_AMOUNT');
-
-      const fiatAmount = Math.ceil(usdc * exchangeRate);
-      const exchangeInfo = await this.calcExchangeFiatToUsdc({
-        fiatAmount,
-        country: dto.country,
-        token: dto.token,
-      });
-
-      return {
-        success: true,
-        direction: dto.direction,
-        username: target.username,
-        fiatCurrency: exchangeInfo.fiatCurrency,
-        fiatAmount: exchangeInfo.fiatAmount,
-        cryptoCurrency: exchangeInfo.cryptoCurrency,
-        usdcAmount: dto.usdcAmount,
-        exchangeRate: exchangeInfo.exchangeRate,
-        feeAmount: exchangeInfo.feeAmount,
-        timestamp: exchangeInfo.timestamp,
-        gaianExchangeInfo: exchangeInfo,
-      };
+    if (!probe?.exchangeRate) {
+      throw new BadRequestException('GAIAN_RATE_FETCH_FAILED');
     }
 
-    throw new BadRequestException('INVALID_DIRECTION');
+    const exchangeRate = PaymentsService.toNumberStrict(probe.exchangeRate, 'INVALID_EXCHANGE_RATE');
+    const usdcAmount = PaymentsService.toNumberStrict(dto.usdcAmount, 'INVALID_USDC_AMOUNT');
+
+    // Calculate final payout (matching createOrder logic)
+    const baseFiatAmount = Math.round(usdcAmount * exchangeRate);
+    const payoutFeeRate = this.getPayoutFeeRate();
+    const feeFiatAmount = Math.ceil(baseFiatAmount * payoutFeeRate);
+    const finalFiatAmount = Math.max(0, baseFiatAmount - feeFiatAmount);
+
+    return {
+      success: true,
+      direction: dto.direction,
+      fiatCurrency: probe.fiatCurrency,
+      fiatAmount: finalFiatAmount, // What recipient actually gets
+      cryptoCurrency: probe.cryptoCurrency,
+      usdcAmount: dto.usdcAmount,
+      exchangeRate: probe.exchangeRate, // Base rate before fees
+      feeAmount: feeFiatAmount,
+      feeRate: payoutFeeRate,
+      timestamp: new Date().toISOString(),
+      // Include breakdown for transparency
+      loyaltyFeeDiscount: {
+        feePercent: String(payoutFeeRate * 100),
+        feeRate: payoutFeeRate,
+        feeAmount: feeFiatAmount,
+        baseFiatAmount,
+        finalFiatAmount,
+      },
+    };
   }
 
   async syncStatus(orderId: string) {
