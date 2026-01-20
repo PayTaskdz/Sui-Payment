@@ -11,8 +11,21 @@ export class AuthService {
     private gaianService: GaianService,
   ) { }
 
-  async register(dto: { walletAddress: string; referralUsername?: string }) {
+  async register(dto: { walletAddress: string; username: string; referralUsername?: string }) {
     try {
+      // Check if username already exists
+      const existingUsername = await this.prisma.user.findUnique({
+        where: { username: dto.username },
+      });
+
+      if (existingUsername) {
+        throw new BusinessException(
+          'Username already taken',
+          'USERNAME_TAKEN',
+          HttpStatus.CONFLICT
+        );
+      }
+
       // Lookup referrer if referralUsername provided
       let referrerId: string | undefined;
       if (dto.referralUsername) {
@@ -54,8 +67,10 @@ export class AuthService {
         user = await this.prisma.user.create({
           data: {
             walletAddress: dto.walletAddress,
-            username: dto.walletAddress.substring(0, 10), // Use wallet address prefix as username
+            username: dto.username, // Use user-provided username
             referrerId: referrerId, // Set referrer ID if provided
+            loyaltyPoints: 0, // Set initial loyalty points to 0
+            commissionBalance: 0, // Set initial commission balance to 0
           },
         });
       }

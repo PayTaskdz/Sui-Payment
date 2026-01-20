@@ -65,6 +65,10 @@ model User {
   contacts        Contact[]
   referrer        User?    @relation("UserReferral", fields: [referrerId], references: [id], onDelete: SetNull)
   referees        User[]   @relation("UserReferral") // Danh sách F1 mình đã giới thiệu
+  
+  // Referral Rewards
+  referrerRewards ReferralReward[] @relation("ReferrerRewards") // Rewards I received as F0
+  refereeRewards  ReferralReward[] @relation("RefereeRewards")  // Rewards I received as F1
 
   @@index([referrerId])
   @@map("users")
@@ -83,9 +87,6 @@ model OnchainWallet {
   chain          String   // "Sui", "Solana", "Ethereum", "Polygon", etc.
   label          String?
   walletProvider String?  @map("wallet_provider") // "metamask", "phantom", "sui_wallet"
-
-  // KYC (synced from Gaian for this wallet)
-  kycStatus      String   @default("not started") @map("kyc_status")
 
   // Status
   isDefault      Boolean  @default(false) @map("is_default")
@@ -269,4 +270,24 @@ model ZkLoginSalt {
 
   @@unique([provider, providerSub], name: "provider_providerSub")
   @@map("zklogin_salts")
+}
+
+// ============================================
+// REFERRAL REWARD TABLE
+// Purpose: Track referral bonus history for 500 points/6 months limit
+// ============================================
+model ReferralReward {
+  id          String   @id @default(uuid()) @db.Uuid
+  referrerId  String   @map("referrer_id") @db.Uuid // F0 who received the bonus
+  refereeId   String   @map("referee_id") @db.Uuid   // F1 who triggered the bonus
+  points      Float    // Bonus points awarded
+  reason      String   // "KYC_APPROVED", "F1_COMPLETED_3_TX"
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  referrer    User     @relation("ReferrerRewards", fields: [referrerId], references: [id], onDelete: Cascade)
+  referee     User     @relation("RefereeRewards", fields: [refereeId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId, createdAt])
+  @@map("referral_rewards")
 }

@@ -112,7 +112,7 @@ export class GaianService {
       throw new Error(`Gaian getUserInfo failed: ${error.response?.data?.message || error.message}`);
     }
   }
-
+  
   async getKycLink(walletAddress: string) {
     try {
       const response = await firstValueFrom(

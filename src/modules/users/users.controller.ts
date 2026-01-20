@@ -3,7 +3,6 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { ChangeUsernameDto } from './dto/change-username.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('bearer')
@@ -32,20 +31,33 @@ export class UsersController {
   }
 
   /**
-   * PATCH /users/profile/username?userId=xxx
-   * UC7: Change username (rate limit: 3 per 30 days)
-   */
-  @Patch('profile/username')
-  async changeUsername(@Req() req: any, @Body() dto: ChangeUsernameDto) {
-    return this.usersService.changeUsername(req.user.userId, dto.newUsername);
-  }
-
-  /**
    * GET /users/lookup?username=xxx
    * Lookup user by username (for transfers)
    */
   @Get('lookup')
   async getUserByUsername(@Query('username') username: string) {
     return this.usersService.getUserByUsername(username);
+  }
+
+  /**
+   * GET /users/referral-stats
+   * Get referral statistics (F0 rewards and F1 rewards)
+   */
+  @Get('referral-stats')
+  async getReferralStats(@Req() req: any) {
+    return this.usersService.getReferralStats(req.user.userId);
+  }
+
+  /**
+   * GET /users/referral-history?limit=50
+   * Get referral reward history
+   */
+  @Get('referral-history')
+  async getReferralHistory(
+    @Req() req: any,
+    @Query('limit') limit?: string
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+    return this.usersService.getReferralHistory(req.user.userId, limitNum);
   }
 }
