@@ -59,11 +59,12 @@ export class KycService {
 
     // 2. Get KYC status from Gaian
     try {
-      const gaianUser = await this.gaianService.getUserInfo(walletAddress);
+      const gaianResp = await this.gaianService.getUserInfo(walletAddress);
+      const kyc = gaianResp?.user?.kyc;
 
-      const kycStatus = gaianUser.kyc?.status || 'not started';
-      const firstName = gaianUser.kyc?.firstName || null;
-      const lastName = gaianUser.kyc?.lastName || null;
+      const kycStatus = String(kyc?.status ?? 'not started').toLowerCase();
+      const firstName = kyc?.firstName ?? null;
+      const lastName = kyc?.lastName ?? null;
 
       // 3. Update local DB with Gaian data
       const updatedUser = await this.prisma.user.update({
@@ -93,6 +94,8 @@ export class KycService {
       );
     }
   }
+
+  
 
   /**
    * UC12: Handle KYC Webhook from Gaian

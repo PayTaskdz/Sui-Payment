@@ -6,14 +6,26 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 export class PaymentMethodsService {
   constructor(private prisma: PrismaService) {}
 
+  private isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  }
+
   /**
    * UC5: Set Default Wallet
    * Only 1 default wallet globally (across onchain + offchain)
    */
   async setDefaultWallet(userId: string, walletId: string, walletType: 'onchain' | 'offchain') {
+    if (!this.isUuid(userId)) {
+      throw new BadRequestException('Invalid userId format');
+    }
+
+    if (!this.isUuid(walletId)) {
+      throw new BadRequestException('Invalid walletId format');
+    }
+
     // 1. Validate wallet exists and belongs to user
     let wallet: any;
-    
+
     if (walletType === 'onchain') {
       wallet = await this.prisma.onchainWallet.findFirst({
         where: { id: walletId, userId },
