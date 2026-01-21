@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../database/prisma.service';
 import { SuiService } from '../../../integrations/blockchain/sui.service';
-import { BusinessException } from '../../../common/exceptions/business.exception';
+import { BusinessException } from '../../../common/business.exception';
 
 @Injectable()
 export class OnchainService {

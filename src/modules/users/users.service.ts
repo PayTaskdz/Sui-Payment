@@ -1,14 +1,15 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { BusinessException } from '../../common/exceptions/business.exception';
+import { BusinessException } from '../../common/business.exception';
 import { AppConfigService } from '../../config/config.service';
-import { GaianService } from '../../integrations/gaian/gaian.service';
+import { GaianClient } from '../../gaian/gaian.client';
 
 @Injectable()
 export class UsersService {
   constructor(
     private prisma: PrismaService,
     private config: AppConfigService,
+    private gaianClient: GaianClient,
   ) { }
 
   /**
@@ -255,6 +256,35 @@ export class UsersService {
     const defaultOnchain = user.onchainWallets.find((w: any) => w.isDefault);
     const defaultOffchain = user.offchainWallets.find((w: any) => w.isDefault);
 
+    // Fetch KYC status from Gaian
+    let gaianKycStatus = user.kycStatus; // Fallback to local status
+    let canTransfer = user.kycStatus === 'approved';
+    
+    try {
+      const gaianUser = await this.gaianClient.getUserInfo(user.walletAddress);
+      
+      // Extract KYC status from nested response: gaianUser.user.kyc.status
+      if (gaianUser?.user?.kyc?.status) {
+        gaianKycStatus = gaianUser.user.kyc.status;
+        canTransfer = gaianKycStatus === 'approved';
+        
+        // Sync approved KYC status to local database
+        if (gaianKycStatus === 'approved' && user.kycStatus !== 'approved') {
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { 
+              kycStatus: gaianKycStatus,
+              firstName: gaianUser.user.kyc.firstName || user.firstName,
+              lastName: gaianUser.user.kyc.lastName || user.lastName,
+            },
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching user info from Gaian:', error);
+      // Use local status as fallback
+    }
+
     return {
       userId: user.id,
       username: user.username,
@@ -262,8 +292,8 @@ export class UsersService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      kycStatus: user.kycStatus,
-      canTransfer: user.kycStatus === 'approved',
+      kycStatus: gaianKycStatus,
+      canTransfer: canTransfer,
       isActive: user.isActive,
       
       // Loyalty & Tier Info (calculated dynamically)
@@ -334,43 +364,6 @@ export class UsersService {
       email: updatedUser.email,
       firstName: updatedUser.firstName,
       lastName: updatedUser.lastName,
-      updatedAt: updatedUser.updatedAt,
-    };
-  }
-
-  /**
-   * UC7: Change Username
-   */
-  async changeUsername(userId: string, newUsername: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { username: newUsername },
-    });
-
-    if (existingUser) {
-      throw new BusinessException(
-        'Username already taken',
-        'USERNAME_TAKEN',
-        409,
-      );
-    }
-
-    const updatedUser = await this.prisma.user.update({
-      where: { id: userId },
-      data: { username: newUsername },
-    });
-
-    return {
-      userId: updatedUser.id,
-      username: updatedUser.username,
-      message: 'Username changed successfully',
       updatedAt: updatedUser.updatedAt,
     };
   }

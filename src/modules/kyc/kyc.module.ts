@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { KycController } from './kyc.controller';
 import { KycService } from './kyc.service';
-import { GaianModule } from '../../integrations/gaian/gaian.module';
+import { GaianClientModule } from '../../gaian/gaian.module';
 
 @Module({
-  imports: [GaianModule],
+  imports: [GaianClientModule],
   controllers: [KycController],
   providers: [KycService],
   exports: [KycService],

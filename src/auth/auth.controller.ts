@@ -7,6 +7,7 @@ import { ZkLoginChallengeResponseDto } from './dto/zklogin-challenge.dto';
 import { ZkLoginRegisterDto } from './dto/zklogin-register.dto';
 import { ZkLoginSaltRequestDto, ZkLoginSaltResponseDto } from './dto/zklogin-salt.dto';
 import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
+import { RegisterDto } from './dto/register.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -58,6 +59,13 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'JWT issued' })
   zkLoginVerify(@Body() dto: ZkLoginVerifyDto) {
     return this.authService.verifyZkLoginAndIssueToken(dto);
+  }
+  @Post('register')
+  @ApiOperation({ summary: 'Register user' })
+  @ApiBody({ type: RegisterDto })
+  @ApiResponse({ status: 201, description: 'User registered' })
+  async registerUser(@Body() dto: RegisterDto) {
+    return this.authService.registerUser(dto);
   }
 }
 

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpStatus, Injectable } from '@nestjs/common';
 import { ZkLoginRegisterDto } from './dto/zklogin-register.dto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -15,6 +15,8 @@ import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
 import { randomBase64 } from './zklogin.util';
 import { GoogleOidcService } from './google-oidc.service';
 import { SuiRpcService } from '../sui/sui-rpc.service';
+import { BusinessException } from '@/common/business.exception';
+import { GaianClient } from '@/gaian/gaian.client';
 
 function normalizeSuiAddress(address: string) {
   const a = address.trim().toLowerCase();
@@ -32,6 +34,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly googleOidc: GoogleOidcService,
     private readonly suiRpc: SuiRpcService,
+    private readonly gaianClient: GaianClient,
   ) {
     this.domain = this.config.get<string>('AUTH_DOMAIN') ?? 'paypath.app';
     this.challengeTtlSeconds = Number(this.config.get<string>('AUTH_CHALLENGE_TTL_SECONDS') ?? '300');
@@ -283,6 +286,101 @@ export class AuthService {
       accessToken: token,
       tokenType: 'Bearer',
     };
+  }
+  //register user
+  async registerUser(dto: { walletAddress: string; username: string; referralUsername?: string }) {
+    try {
+      // Check if username already exists
+      const existingUsername = await this.prisma.user.findUnique({
+        where: { username: dto.username },
+      });
+
+      if (existingUsername) {
+        throw new BusinessException(
+          'Username already taken',
+          'USERNAME_TAKEN',
+          HttpStatus.CONFLICT
+        );
+      }
+
+      // Lookup referrer if referralUsername provided
+      let referrerId: string | undefined;
+      if (dto.referralUsername) {
+        const referrer = await this.prisma.user.findFirst({
+          where: { username: dto.referralUsername },
+        });
+
+        if (!referrer) {
+          throw new BusinessException(
+            'Referral username not found',
+            'INVALID_REFERRAL',
+            HttpStatus.BAD_REQUEST
+          );
+        }
+
+        referrerId = referrer.id;
+      }
+
+      // Call Gaian API to register user
+      const gaianResponse = await this.gaianClient.registerUser({
+        walletAddress: dto.walletAddress,
+      });
+
+      if (gaianResponse.status !== 'success') {
+        throw new BusinessException(
+          gaianResponse.message || 'Registration failed',
+          'REGISTRATION_FAILED',
+          HttpStatus.BAD_REQUEST
+        );
+      }
+
+      // Check if user already exists in local database
+      let user = await this.prisma.user.findFirst({
+        where: { walletAddress: dto.walletAddress }
+      });
+
+      // If user doesn't exist locally, create them
+      if (!user) {
+        user = await this.prisma.user.create({
+          data: {
+            walletAddress: dto.walletAddress,
+            username: dto.username, // Use user-provided username
+            referrerId: referrerId, // Set referrer ID if provided
+            loyaltyPoints: 0, // Set initial loyalty points to 0
+            commissionBalance: 0, // Set initial commission balance to 0
+          },
+        });
+      }
+
+      return {
+        status: gaianResponse.status,
+        message: gaianResponse.message,
+        user: {
+          walletAddress: user.walletAddress,
+          gaianUser: gaianResponse.user,
+        },
+      };
+    } catch (error: any) {
+      if (error instanceof BusinessException) {
+        throw error;
+      }
+      throw new BusinessException(
+        error.message || 'Registration failed',
+        'GAIAN_REGISTRATION_ERROR',
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+  //login
+  async login(address: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { walletAddress: address },
+      include: {
+        onchainWallets: { where: { isActive: true } },
+        offchainWallets: { where: { isActive: true } },
+      },
+    });
+    return user;
   }
 }
 

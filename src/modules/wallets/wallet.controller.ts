@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, Query, BadRequestException } from '@nestjs/common';
-import { AuthService } from '../auth/auth.service';
+import { AuthService } from '../../auth/auth.service';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
-import { RegisterDto } from '../auth/dto/register.dto';
+import { RegisterDto } from '../../auth/dto/register.dto';
 
 @Controller('wallet')
 export class WalletController {
@@ -12,14 +12,14 @@ export class WalletController {
 
   /**
    * POST /wallet/register
-   * Register new user with wallet address and optional email
+   * Register new user with username, wallet address and optional referral username
    */
   @Post('register')
   async register(@Body() dto: RegisterDto) {
     if (!dto.walletAddress) {
       throw new BadRequestException('walletAddress is required');
     }
-    return this.authService.register(dto);
+    return this.authService.registerUser(dto);
   }
 
   /**

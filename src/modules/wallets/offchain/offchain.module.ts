@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { OffchainController } from './offchain.controller';
 import { OffchainService } from './offchain.service';
-import { GaianModule } from '../../../integrations/gaian/gaian.module';
+import { GaianClientModule } from '../../../gaian/gaian.module';
 
 @Module({
-  imports: [GaianModule],
+  imports: [GaianClientModule],
   controllers: [OffchainController],
   providers: [OffchainService],
   exports: [OffchainService],

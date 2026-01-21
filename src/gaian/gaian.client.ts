@@ -160,5 +160,81 @@ export class GaianClient {
       });
     }
   }
+  async registerUser(data: { walletAddress: string; email?: string }) {
+    this.ensureUserConfigured();
+    const url = `${this.userBaseUrl}/api/v1/user/register`;
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(url, data, {
+          headers: {
+            'x-api-key': this.apiKey,
+          },
+        }),
+      );
+      return response.data;
+    } catch (err) {
+      throw new BadRequestException({
+        message: 'GAIAN_REGISTER_USER_FAILED',
+        gaian: GaianClient.buildAxiosErrorDebug(err),
+      });
+    }
+  }
+  async getUserInfo(walletAddress: string) {
+    this.ensureUserConfigured();
+    const url = `${this.userBaseUrl}/api/v1/users?walletAddress=${walletAddress}`;
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(url, {
+          headers: {
+            'x-api-key': this.apiKey,
+          },
+        }),
+      );
+      return response.data;
+    } catch (err) {
+      throw new BadRequestException({
+        message: 'GAIAN_GET_USER_INFO_FAILED',
+        gaian: GaianClient.buildAxiosErrorDebug(err),
+      });
+    }
+  }
+  async getKycLink(walletAddress: string) {
+    this.ensureUserConfigured();
+    const url = `${this.userBaseUrl}/api/v1/kyc/link`;
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(url, { walletAddress }, {
+          headers: {
+            'x-api-key': this.apiKey,
+          },
+        }),
+      );
+      return response.data;
+    } catch (err) {
+      throw new BadRequestException({
+        message: 'GAIAN_GET_KYC_LINK_FAILED',
+        gaian: GaianClient.buildAxiosErrorDebug(err),
+      });
+    }
+  }
+  async parseQr(qrString: string) {
+    this.ensureUserConfigured();
+    const url = `${this.userBaseUrl}/api/v1/parseQr`;
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(url, { qrString }, {
+          headers: {
+            'x-api-key': this.apiKey,
+          },
+        }),
+      );
+      return response.data;
+    } catch (err) {
+      throw new BadRequestException({
+        message: 'GAIAN_PARSE_QR_FAILED',
+        gaian: GaianClient.buildAxiosErrorDebug(err),
+      });
+    }
+  }
 }
 

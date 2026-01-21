@@ -30,15 +30,6 @@ export class UsersController {
   async updateProfile(@Req() req: any, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateProfile(req.user.userId, dto);
   }
-
-  /**
-   * PATCH /users/profile/username
-   * UC7: Change username
-   */
-  @Patch('profile/username')
-  async changeUsername(@Req() req: any, @Body() dto: ChangeUsernameDto) {
-    return this.usersService.changeUsername(req.user.userId, dto.newUsername);
-  }
   
   /**
    * GET /users/check-username?username=xxx
