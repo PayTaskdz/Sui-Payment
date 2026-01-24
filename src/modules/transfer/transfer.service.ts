@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { GaianClient } from '../../gaian/gaian.client';
-import { SuiService } from '../../integrations/blockchain/sui.service';
+import { SuiRpcService } from '../../sui/sui-rpc.service';
 import { BusinessException } from '../../common/business.exception';
 
 @Injectable()
@@ -9,7 +9,7 @@ export class TransferService {
   constructor(
     private prisma: PrismaService,
     private gaianClient: GaianClient,
-    private suiService: SuiService,
+    private suiRpcService: SuiRpcService,
   ) {}
 
   /**
@@ -141,7 +141,7 @@ export class TransferService {
    */
   private async handleOnchainQr(address: string) {
     // 1. Validate address format (for Sui)
-    const isValid = await this.suiService.validateAddress(address);
+    const isValid = await this.suiRpcService.validateAddress(address);
     if (!isValid) {
       throw new BusinessException(
         'Invalid wallet address format',

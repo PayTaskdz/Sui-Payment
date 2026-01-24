@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { OnchainController } from './onchain.controller';
 import { OnchainService } from './onchain.service';
-import { BlockchainModule } from '../../../integrations/blockchain/blockchain.module';
+import { SuiModule } from '../../../sui/sui.module';
 
 @Module({
-  imports: [BlockchainModule],
+  imports: [SuiModule],
   controllers: [OnchainController],
   providers: [OnchainService],
   exports: [OnchainService],

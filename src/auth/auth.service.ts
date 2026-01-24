@@ -290,7 +290,7 @@ export class AuthService {
   //register user
   async registerUser(dto: { walletAddress: string; username: string; referralUsername?: string }) {
     try {
-      // Check if username already exists
+      // 1. Validate: Check if username already exists
       const existingUsername = await this.prisma.user.findUnique({
         where: { username: dto.username },
       });
@@ -303,7 +303,20 @@ export class AuthService {
         );
       }
 
-      // Lookup referrer if referralUsername provided
+      // 2. Validate: Check if walletAddress already registered
+      const existingWallet = await this.prisma.user.findFirst({
+        where: { walletAddress: dto.walletAddress },
+      });
+
+      if (existingWallet) {
+        throw new BusinessException(
+          'Wallet address already registered',
+          'WALLET_ALREADY_REGISTERED',
+          HttpStatus.CONFLICT
+        );
+      }
+
+      // 3. Validate: Lookup referrer if referralUsername provided
       let referrerId: string | undefined;
       if (dto.referralUsername) {
         const referrer = await this.prisma.user.findFirst({
@@ -321,42 +334,38 @@ export class AuthService {
         referrerId = referrer.id;
       }
 
-      // Call Gaian API to register user
+      // 4. Call Gaian API to register user
       const gaianResponse = await this.gaianClient.registerUser({
         walletAddress: dto.walletAddress,
       });
 
+      // 5. Check Gaian registration status
       if (gaianResponse.status !== 'success') {
         throw new BusinessException(
-          gaianResponse.message || 'Registration failed',
-          'REGISTRATION_FAILED',
+          gaianResponse.message || 'Gaian registration failed',
+          'GAIAN_REGISTRATION_FAILED',
           HttpStatus.BAD_REQUEST
         );
       }
 
-      // Check if user already exists in local database
-      let user = await this.prisma.user.findFirst({
-        where: { walletAddress: dto.walletAddress }
+      // 6. ONLY create user in local database after Gaian success
+      const user = await this.prisma.user.create({
+        data: {
+          walletAddress: dto.walletAddress,
+          username: dto.username,
+          referrerId: referrerId,
+          loyaltyPoints: 0,
+          commissionBalance: 0,
+        },
       });
-
-      // If user doesn't exist locally, create them
-      if (!user) {
-        user = await this.prisma.user.create({
-          data: {
-            walletAddress: dto.walletAddress,
-            username: dto.username, // Use user-provided username
-            referrerId: referrerId, // Set referrer ID if provided
-            loyaltyPoints: 0, // Set initial loyalty points to 0
-            commissionBalance: 0, // Set initial commission balance to 0
-          },
-        });
-      }
 
       return {
         status: gaianResponse.status,
         message: gaianResponse.message,
         user: {
           walletAddress: user.walletAddress,
+          username: user.username,
+          userId: user.id,
           gaianUser: gaianResponse.user,
         },
       };
@@ -373,6 +382,7 @@ export class AuthService {
   }
   //login
   async login(address: string) {
+    // 1. Validate: Check if user exists
     const user = await this.prisma.user.findFirst({
       where: { walletAddress: address },
       include: {

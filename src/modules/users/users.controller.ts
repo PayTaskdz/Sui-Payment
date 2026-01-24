@@ -3,8 +3,6 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { ChangeUsernameDto } from './dto/change-username.dto';
-import { OnboardingDto } from './dto/onboarding.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('bearer')
@@ -39,16 +37,7 @@ export class UsersController {
   async checkUsername(@Query('username') username: string) {
     return this.usersService.checkUsernameAvailability(username);
   }
-
-  /**
-   * POST /users/onboarding
-   * Complete user onboarding process
-   */
-  @Post('onboarding')
-  async onboarding(@Req() req: any, @Body() dto: OnboardingDto) {
-    return this.usersService.completeOnboarding(req.user.userId, dto);
-  }
-
+  // Bỏ onboarding vì không có bước onboarding
   /**
    * GET /users/lookup?username=xxx
    * Lookup user by username (for transfers)

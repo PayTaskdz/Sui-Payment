@@ -2,8 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-
-
+import { isValidSuiAddress } from '@mysten/sui/utils';
 
 type SuiBalanceChange = {
   owner: unknown;
@@ -189,4 +188,42 @@ export class SuiRpcService {
 
     return { success: true, actualAmount: received };
   }
+  /**
+     * Get SUI balance for an address
+     * Returns balance in SUI (converted from MIST)
+     */
+    async getBalance(address: string): Promise<string> {
+      try {
+        // Validate address first
+        if (!isValidSuiAddress(address)) {
+          throw new Error('Invalid SUI address format');
+        }
+  
+        // Get balance (returns in MIST, 1 SUI = 10^9 MIST)
+        const balance = await this.rpc<any>('sui_getBalance', [
+          address,
+        ]);
+  
+        // Convert MIST to SUI
+        const balanceInSui = (BigInt(balance.totalBalance) / BigInt(1_000_000_000)).toString();
+        const remainderMist = BigInt(balance.totalBalance) % BigInt(1_000_000_000);
+        
+        // Format with decimals (up to 9 decimal places)
+        if (remainderMist > 0) {
+          const decimal = remainderMist.toString().padStart(9, '0').replace(/0+$/, '');
+          return `${balanceInSui}.${decimal}`;
+        }
+        
+        return balanceInSui;
+      } catch (error: any) {
+        throw new Error(`Failed to query SUI balance: ${error.message}`);
+      }
+    }
+  
+    /**
+     * Validate SUI address format
+     */
+    async validateAddress(address: string): Promise<boolean> {
+      return isValidSuiAddress(address);
+    }
 }

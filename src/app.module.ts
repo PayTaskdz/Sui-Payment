@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
+import { AppConfigModule } from './config/config.module';
 import { AuthModule } from './auth/auth.module';
 import { WalletModule } from './modules/wallets/wallet.module';
 import { TransferModule } from './modules/transfer/transfer.module';
@@ -13,7 +14,6 @@ import { OnchainWalletsModule } from './modules/wallets/onchain/onchain.module';
 import { OffchainWalletsModule } from './modules/wallets/offchain/offchain.module';
 import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
 import { GaianClientModule } from './gaian/gaian.module';
-import { BlockchainModule } from './integrations/blockchain/blockchain.module';
 // Payment & Sui Modules
 import { SuiModule } from './sui/sui.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -26,6 +26,7 @@ import { ProverModule } from './prover/prover.module';
     }),
     ScheduleModule.forRoot(),
     DatabaseModule,
+    AppConfigModule,
     // Core Modules (Linked)
     AuthModule,
     UsersModule,
@@ -36,7 +37,6 @@ import { ProverModule } from './prover/prover.module';
     OffchainWalletsModule,
     PaymentMethodsModule,
     GaianClientModule,
-    BlockchainModule,
     // Feature Modules (Payment & Sui)
     PaymentsModule,
     SuiModule,
