@@ -86,14 +86,27 @@ export class AuthService {
   async verifyAndIssueToken(dto: VerifyDto) {
     const address = normalizeSuiAddress(dto.address);
 
-    let user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
-    if (!user) {
-      user = await this.prisma.user.create({
-        data: {
-          walletAddress: address,
-          username: null,
-        },
-      });
+    // Check if this wallet is already linked to any user's onchain wallets
+    const existingOnchainWallet = await this.prisma.onchainWallet.findFirst({
+      where: { address },
+      include: { user: true },
+    });
+
+    let user;
+    if (existingOnchainWallet) {
+      // Wallet is already linked to another user, use that user for login
+      user = existingOnchainWallet.user;
+    } else {
+      // Wallet is not in onchain wallets, check User table
+      user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
+      if (!user) {
+        user = await this.prisma.user.create({
+          data: {
+            walletAddress: address,
+            username: null,
+          },
+        });
+      }
     }
 
     const nonceRow = await this.prisma.authNonce.findFirst({
@@ -290,6 +303,25 @@ export class AuthService {
   //register user
   async registerUser(dto: { walletAddress: string; username: string; referralUsername?: string }) {
     try {
+      // Check if wallet address already exists in onchain wallets
+      const existingUser = await this.prisma.user.findFirst({
+        where: { walletAddress: dto.walletAddress },
+        include: {
+          onchainWallets: {
+            where: {
+              address: dto.walletAddress,
+            },
+          },
+        },
+      });
+
+      if (existingUser && existingUser.onchainWallets.length > 0) {
+        throw new BusinessException(
+          'Wallet address already taken',
+          'WALLET_ADDRESS_TAKEN',
+          HttpStatus.CONFLICT
+        );
+      }
       // Check if username already exists
       const existingUsername = await this.prisma.user.findUnique({
         where: { username: dto.username },
@@ -344,6 +376,7 @@ export class AuthService {
         user = await this.prisma.user.create({
           data: {
             walletAddress: dto.walletAddress,
+            gaianRegisteredWallet: dto.walletAddress, // Store the Gaian registered wallet
             username: dto.username, // Use user-provided username
             referrerId: referrerId, // Set referrer ID if provided
             loyaltyPoints: 0, // Set initial loyalty points to 0
@@ -354,6 +387,7 @@ export class AuthService {
         user = await this.prisma.user.update({
           where: { id: user.id },
           data: {
+            gaianRegisteredWallet: dto.walletAddress, // Update Gaian registered wallet
             username: dto.username,
             referrerId: referrerId ?? user.referrerId, // Update referrer if provided
           },

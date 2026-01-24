@@ -406,14 +406,24 @@ private static rawToDecimal(raw: string, decimals: number): number {
             where: { id: orderId },
             data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
           });
+           // Use gaianRegisteredWallet for fromAddress to bypass KYC in Gaian
+          const payer = await tx.user.findFirst({
+            where: { walletAddress: updatedOrder.payerWalletAddress },
+          });
 
+          if (!payer) {
+            throw new BadRequestException('PAYER_NOT_FOUND');
+          }
+          // Use gaianRegisteredWallet if available, otherwise fall back to payerWalletAddress
+          const gaianWalletAddress = payer.gaianRegisteredWallet || updatedOrder.payerWalletAddress;
+          
           // Call Gaian with qrString from order (or fallback to paymentTarget)
           const gaianResp = await this.gaian.placeOrderPrefund({
             qrString,
             amount: Number(updatedOrder.fiatAmount),
             fiatCurrency: updatedOrder.fiatCurrency,
             cryptoCurrency: updatedOrder.cryptoCurrency,
-            fromAddress: updatedOrder.payerWalletAddress,
+            fromAddress: gaianWalletAddress, // Use Gaian-registered wallet for KYC
             transactionReference: updatedOrder.userPaymentTxDigest || undefined,
           });
 

@@ -8,24 +8,25 @@ datasource db {
 }
 
 model User {
-  id                String           @id @default(uuid()) @db.Uuid
-  username          String?          @unique
-  walletAddress     String           @map("wallet_address")
-  email             String?
-  kycStatus         String           @default("not started") @map("kyc_status")
-  firstName         String?          @map("first_name")
-  lastName          String?          @map("last_name")
-  referrerId        String?          @map("referrer_id") @db.Uuid
-  loyaltyPoints     Float            @default(0) @map("loyalty_points")
-  commissionBalance Float            @default(0) @map("commission_balance")
-  isActive          Boolean          @default(true) @map("is_active")
-  createdAt         DateTime         @default(now()) @map("created_at")
-  updatedAt         DateTime         @updatedAt @map("updated_at")
-  contacts          Contact[]
-  offchainWallets   OffchainWallet[]
-  onchainWallets    OnchainWallet[]
-  referrer          User?            @relation("UserReferral", fields: [referrerId], references: [id])
-  referees          User[]           @relation("UserReferral")
+  id                    String           @id @default(uuid()) @db.Uuid
+  username              String?          @unique
+  walletAddress         String           @map("wallet_address")
+  gaianRegisteredWallet String?          @map("gaian_registered_wallet")
+  email                 String?
+  kycStatus             String           @default("not started") @map("kyc_status")
+  firstName             String?          @map("first_name")
+  lastName              String?          @map("last_name")
+  referrerId            String?          @map("referrer_id") @db.Uuid
+  loyaltyPoints         Float            @default(0) @map("loyalty_points")
+  commissionBalance     Float            @default(0) @map("commission_balance")
+  isActive              Boolean          @default(true) @map("is_active")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+  contacts              Contact[]
+  offchainWallets       OffchainWallet[]
+  onchainWallets        OnchainWallet[]
+  referrer              User?            @relation("UserReferral", fields: [referrerId], references: [id])
+  referees              User[]           @relation("UserReferral")
 
   @@index([referrerId])
   @@map("users")

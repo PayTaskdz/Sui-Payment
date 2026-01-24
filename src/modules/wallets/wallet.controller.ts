@@ -1,7 +1,6 @@
 import { Controller, Post, Get, Body, Query, BadRequestException } from '@nestjs/common';
 import { AuthService } from '../../auth/auth.service';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
-import { RegisterDto } from '../../auth/dto/register.dto';
 
 @Controller('wallet')
 export class WalletController {

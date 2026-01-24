@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { BusinessException } from '../../common/business.exception';
 import { AppConfigService } from '../../config/config.service';
 import { GaianClient } from '../../gaian/gaian.client';
 
@@ -256,12 +255,14 @@ export class UsersService {
     const defaultOnchain = user.onchainWallets.find((w: any) => w.isDefault);
     const defaultOffchain = user.offchainWallets.find((w: any) => w.isDefault);
 
-    // Fetch KYC status from Gaian
+    // Fetch KYC status from Gaian using the registered wallet
     let gaianKycStatus = user.kycStatus; // Fallback to local status
     let canTransfer = user.kycStatus === 'approved';
     
     try {
-      const gaianUser = await this.gaianClient.getUserInfo(user.walletAddress);
+      // Use gaianRegisteredWallet if available, otherwise fall back to walletAddress
+      const walletToCheck = user.gaianRegisteredWallet || user.walletAddress;
+      const gaianUser = await this.gaianClient.getUserInfo(walletToCheck);
       
       // Extract KYC status from nested response: gaianUser.user.kyc.status
       if (gaianUser?.user?.kyc?.status) {
