@@ -9,19 +9,7 @@ export class WalletController {
     private readonly authService: AuthService,
     private readonly paymentMethodsService: PaymentMethodsService,
   ) {}
-
-  /**
-   * POST /wallet/register
-   * Register new user with username, wallet address and optional referral username
-   */
-  @Post('register')
-  async register(@Body() dto: RegisterDto) {
-    if (!dto.walletAddress) {
-      throw new BadRequestException('walletAddress is required');
-    }
-    return this.authService.registerUser(dto);
-  }
-
+  
   /**
    * GET /wallet/check-wallet?address=xxx
    * Check if wallet is registered and return full user info

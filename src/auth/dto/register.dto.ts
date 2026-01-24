@@ -13,4 +13,8 @@ export class RegisterDto {
   @IsString()
   @IsOptional()
   referralUsername?: string;
+
+  @IsString()
+  @IsOptional()
+  email?: string;
 }
