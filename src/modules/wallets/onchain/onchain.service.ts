@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../../database/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { SuiRpcService } from '../../../sui/sui-rpc.service';
 import { BusinessException } from '../../../common/business.exception';
 

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../database/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { GaianClient } from '../../gaian/gaian.client';
 import { BusinessException } from '../../common/business.exception';
 
