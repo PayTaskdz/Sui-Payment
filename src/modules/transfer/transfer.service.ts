@@ -217,7 +217,7 @@ export class TransferService {
    */
   private async handleOffchainQr(qrString: string) {
     // 1. Parse QR via Gaian
-    const parsedBank = await this.gaianClient.parseQr(qrString);
+    const parsedBank = await this.gaianClient.parseQr(qrString, 'VN');
     
     if (!parsedBank) {
       throw new BusinessException(

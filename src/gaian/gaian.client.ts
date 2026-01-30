@@ -217,12 +217,12 @@ export class GaianClient {
       });
     }
   }
-  async parseQr(qrString: string) {
-    this.ensureUserConfigured();
-    const url = `${this.userBaseUrl}/api/v1/parseQr`;
+  async parseQr(qrString: string, country: string) {
+    this.ensurePaymentConfigured();
+    const url = `${this.paymentBaseUrl}/api/v1/parseQr`;
     try {
       const response = await firstValueFrom(
-        this.httpService.post(url, { qrString }, {
+        this.httpService.post(url, { qrString, country }, {
           headers: {
             'x-api-key': this.apiKey,
           },

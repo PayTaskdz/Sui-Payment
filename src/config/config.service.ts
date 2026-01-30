@@ -13,20 +13,12 @@ export class AppConfigService {
     return this.configService.get<string>("GAIAN_API_KEY") ?? "";
   }
 
-  get gaianQrApiKey(): string {
-    return this.configService.get<string>('GAIAN_QR_API_KEY') ?? '';
-  }
-
   get gaianUserBaseUrl(): string {
     return this.configService.get<string>("GAIAN_USER_BASE_URL") ?? "";
   }
 
   get gaianPaymentBaseUrl(): string {
     return this.configService.get<string>("GAIAN_PAYMENT_BASE_URL") ?? "";
-  }
-
-  get gaianQrBaseUrl(): string {
-    return this.configService.get<string>('GAIAN_QR_BASE_URL') ?? '';
   }
 
   get jwtSecret(): string {

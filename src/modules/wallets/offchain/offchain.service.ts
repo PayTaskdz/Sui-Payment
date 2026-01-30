@@ -18,7 +18,7 @@ export class OffchainService {
   async scanQr(userId: string, qrString: string, label?: string) {
     try {
       // 1. Parse QR code via Gaian API
-      const parsedBank = await this.gaianClient.parseQr(qrString);
+      const parsedBank = await this.gaianClient.parseQr(qrString, 'VN');
 
       // 2. Validate parsed result
       if (!parsedBank) {
@@ -61,7 +61,7 @@ export class OffchainService {
    * UC3: Add bank via VietQR (parse then persist)
    */
   async addFromQr(userId: string, qrString: string, label?: string) {
-    const parsed = await this.gaianClient.parseQr(qrString);
+    const parsed = await this.gaianClient.parseQr(qrString, 'VN');
 
     if (!parsed) {
       throw new BadRequestException('Invalid QR Code');
