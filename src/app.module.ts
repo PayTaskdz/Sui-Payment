@@ -12,7 +12,9 @@ import { KycModule } from './modules/kyc/kyc.module';
 import { OnchainWalletsModule } from './modules/wallets/onchain/onchain.module';
 import { OffchainWalletsModule } from './modules/wallets/offchain/offchain.module';
 import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
-import { GaianModule } from './integrations/gaian/gaian.module';
+
+import { AppConfigModule } from './config/config.module';
+import { GaianModule } from './gaian/gaian.module';
 import { BlockchainModule } from './integrations/blockchain/blockchain.module';
 // Payment & Sui Modules
 import { SuiModule } from './sui/sui.module';
@@ -25,6 +27,7 @@ import { ProverModule } from './prover/prover.module';
       isGlobal: true,
     }),
     ScheduleModule.forRoot(),
+    AppConfigModule,
     DatabaseModule,
     // Core Modules (Linked)
     AuthModule,

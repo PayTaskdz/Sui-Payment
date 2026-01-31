@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { GaianService } from '../../integrations/gaian/gaian.service';
+import { GaianClient } from '../../gaian/gaian.client';
 import { SuiService } from '../../integrations/blockchain/sui.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 
@@ -8,7 +8,7 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 export class TransferService {
   constructor(
     private prisma: PrismaService,
-    private gaianService: GaianService,
+    private gaianClient: GaianClient,
     private suiService: SuiService,
   ) {}
 
@@ -217,7 +217,7 @@ export class TransferService {
    */
   private async handleOffchainQr(qrString: string) {
     // 1. Parse QR via Gaian
-    const parsedBank = await this.gaianService.parseQr(qrString);
+    const parsedBank = await this.gaianClient.parseQr(qrString);
     
     if (!parsedBank) {
       throw new BusinessException(

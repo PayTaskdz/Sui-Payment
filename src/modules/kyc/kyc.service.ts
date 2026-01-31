@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { GaianService } from '../../integrations/gaian/gaian.service';
+import { GaianClient } from '../../gaian/gaian.client';
 import { BusinessException } from '../../common/exceptions/business.exception';
 
 @Injectable()
 export class KycService {
   constructor(
     private prisma: PrismaService,
-    private gaianService: GaianService,
+    private gaianClient: GaianClient,
   ) { }
 
   /**
@@ -26,7 +26,7 @@ export class KycService {
 
     // 2. Call Gaian to get KYC link
     try {
-      const response = await this.gaianService.getKycLink(walletAddress);
+      const response = await this.gaianClient.getKycLink(walletAddress);
 
       return {
         walletAddress,
@@ -59,7 +59,7 @@ export class KycService {
 
     // 2. Get KYC status from Gaian
     try {
-      const gaianResp = await this.gaianService.getUserInfo(walletAddress);
+      const gaianResp = await this.gaianClient.getUserInfo(walletAddress);
       const kyc = gaianResp?.user?.kyc;
 
       const kycStatus = String(kyc?.status ?? 'not started').toLowerCase();

@@ -4,14 +4,14 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { PrismaService } from "../../../database/prisma.service";
-import { GaianService } from "../../../integrations/gaian/gaian.service";
+import { GaianClient } from '../../../gaian/gaian.client';
 import { BusinessException } from "../../../common/exceptions/business.exception";
 
 @Injectable()
 export class OffchainService {
   constructor(
     private prisma: PrismaService,
-    private gaianService: GaianService,
+    private gaianClient: GaianClient,
   ) {}
 
   /**
@@ -20,7 +20,7 @@ export class OffchainService {
   async scanQr(userId: string, qrString: string, label?: string) {
     try {
       // 1. Parse QR code via Gaian API
-      const parsedBank = await this.gaianService.parseQr(qrString);
+      const parsedBank = await this.gaianClient.parseQr(qrString);
 
       // 2. Validate parsed result
       if (!parsedBank) {
@@ -63,7 +63,7 @@ export class OffchainService {
    * UC3: Add bank via VietQR (parse then persist)
    */
   async addFromQr(userId: string, qrString: string, label?: string) {
-    const parsed = await this.gaianService.parseQr(qrString);
+    const parsed = await this.gaianClient.parseQr(qrString);
 
     if (!parsed) {
       throw new BadRequestException('Invalid QR Code');

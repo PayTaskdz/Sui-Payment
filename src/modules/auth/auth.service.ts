@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { GaianService } from '../../integrations/gaian/gaian.service';
+import { GaianClient } from '../../gaian/gaian.client';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { HttpStatus } from '@nestjs/common';
 
@@ -8,7 +8,7 @@ import { HttpStatus } from '@nestjs/common';
 export class AuthService {
   constructor(
     private prisma: PrismaService,
-    private gaianService: GaianService,
+    private gaianClient: GaianClient,
   ) { }
 
   async register(dto: { walletAddress: string; referralUsername?: string }) {
@@ -32,7 +32,7 @@ export class AuthService {
       }
 
       // Call Gaian API to register user
-      const gaianResponse = await this.gaianService.registerUser({
+      const gaianResponse = await this.gaianClient.registerUser({
         walletAddress: dto.walletAddress,
       });
 
