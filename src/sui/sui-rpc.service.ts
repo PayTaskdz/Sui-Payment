@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { isValidSuiAddress } from '@mysten/sui/utils';
+
+const SUI_COIN_TYPE = '0x2::sui::SUI';
 
 
 
@@ -51,6 +54,37 @@ export class SuiRpcService {
     }
 
     return (data?.result ?? null) as T;
+  }
+
+  /**
+   * Get SUI balance for an address (returns balance in SUI, converted from MIST).
+   */
+  async getBalance(address: string): Promise<string> {
+    if (!isValidSuiAddress(address)) {
+      throw new Error('Invalid SUI address format');
+    }
+    const balance = await this.rpc<{ totalBalance: string }>('suix_getBalance', [
+      address,
+      SUI_COIN_TYPE,
+    ]);
+    if (!balance?.totalBalance) {
+      return '0';
+    }
+    const totalMist = BigInt(balance.totalBalance);
+    const balanceInSui = totalMist / BigInt(1_000_000_000);
+    const remainderMist = totalMist % BigInt(1_000_000_000);
+    if (remainderMist > 0n) {
+      const decimal = remainderMist.toString().padStart(9, '0').replace(/0+$/, '');
+      return `${balanceInSui}.${decimal}`;
+    }
+    return balanceInSui.toString();
+  }
+
+  /**
+   * Validate SUI address format.
+   */
+  async validateAddress(address: string): Promise<boolean> {
+    return isValidSuiAddress(address);
   }
 
   async getCurrentEpoch(): Promise<string> {

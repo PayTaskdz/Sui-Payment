@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../database/prisma.service';
-import { SuiService } from '../../../integrations/blockchain/sui.service';
+import { SuiRpcService } from '../../../sui/sui-rpc.service';
 import { BusinessException } from '../../../common/exceptions/business.exception';
 
 @Injectable()
 export class OnchainService {
   constructor(
     private prisma: PrismaService,
-    private suiService: SuiService,
+    private suiRpcService: SuiRpcService,
   ) { }
 
   /**
@@ -130,7 +130,7 @@ export class OnchainService {
     // For now, only SUI is implemented
     if (wallet.chain.toLowerCase() === 'sui') {
       try {
-        const balance = await this.suiService.getBalance(wallet.address);
+        const balance = await this.suiRpcService.getBalance(wallet.address);
         return {
           walletId: wallet.id,
           address: wallet.address,

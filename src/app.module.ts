@@ -15,7 +15,6 @@ import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.
 
 import { AppConfigModule } from './config/config.module';
 import { GaianModule } from './gaian/gaian.module';
-import { BlockchainModule } from './integrations/blockchain/blockchain.module';
 // Payment & Sui Modules
 import { SuiModule } from './sui/sui.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -39,7 +38,6 @@ import { ProverModule } from './prover/prover.module';
     OffchainWalletsModule,
     PaymentMethodsModule,
     GaianModule,
-    BlockchainModule,
     // Feature Modules (Payment & Sui)
     SuiModule,
     PaymentsModule,
