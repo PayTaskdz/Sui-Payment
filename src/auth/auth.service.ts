@@ -83,14 +83,25 @@ export class AuthService {
   async verifyAndIssueToken(dto: VerifyDto) {
     const address = normalizeSuiAddress(dto.address);
 
-    let user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
-    if (!user) {
-      user = await this.prisma.user.create({
-        data: {
-          walletAddress: address,
-          username: null,
-        },
-      });
+    // If wallet address is already in onchain_wallets, log in as that user
+    const existingOnchainWallet = await this.prisma.onchainWallet.findFirst({
+      where: { address: { equals: address, mode: 'insensitive' } },
+      include: { user: true },
+    });
+
+    let user;
+    if (existingOnchainWallet) {
+      user = existingOnchainWallet.user;
+    } else {
+      user = await this.prisma.user.findFirst({ where: { walletAddress: address } });
+      if (!user) {
+        user = await this.prisma.user.create({
+          data: {
+            walletAddress: address,
+            username: null,
+          },
+        });
+      }
     }
 
     const nonceRow = await this.prisma.authNonce.findFirst({
@@ -268,6 +279,38 @@ export class AuthService {
       throw new BadRequestException('ZKLOGIN_SALT_NOT_FOUND');
     }
 
+    // Derive zkLogin wallet address and check if already linked to a user (OnchainWallet)
+    const saltBigInt = BigInt(`0x${Buffer.from(saltRow.userSaltB64, 'base64').toString('hex')}`);
+    const walletAddress = normalizeSuiAddress(jwtToAddress(dto.idToken, saltBigInt));
+
+    const existingOnchainWallet = await this.prisma.onchainWallet.findFirst({
+      where: {
+        chain: { equals: 'sui', mode: 'insensitive' },
+        address: { equals: walletAddress, mode: 'insensitive' },
+      },
+      include: { user: true },
+    });
+
+    if (existingOnchainWallet) {
+      // Wallet already in onchain_wallets: auto login with that user id
+      await this.prisma.authNonce.update({
+        where: { id: nonceRow.id },
+        data: { usedAt: new Date() },
+      });
+
+      const token = await this.jwt.signAsync({
+        sub: existingOnchainWallet.userId,
+        address: walletAddress,
+      });
+
+      return {
+        accessToken: token,
+        tokenType: 'Bearer',
+        needsOnboarding: !existingOnchainWallet.user.username,
+      };
+    }
+
+    // Otherwise proceed to registration flow (issue token for new user flow)
     if (!dto.proof || typeof dto.proof !== 'object') {
       throw new BadRequestException('ZKLOGIN_PROOF_REQUIRED');
     }
