@@ -406,14 +406,34 @@ private static rawToDecimal(raw: string, decimals: number): number {
             data: { status: 'CONFIRMING_GAIAN_PAYMENT' as any },
           });
 
-          // Call Gaian with qrString from order (or fallback to paymentTarget)
+          // A. Find the user who owns the wallet performing the transaction
+          const payerAddressRaw = (updatedOrder.payerWalletAddress || '').trim().toLowerCase();
+          const payerWith0x = payerAddressRaw.startsWith('0x') ? payerAddressRaw : `0x${payerAddressRaw}`;
+
+          // Look up user via OnchainWallet (when using a linked/secondary wallet)
+          const walletRecord = await tx.onchainWallet.findFirst({
+            where: { address: { equals: payerWith0x, mode: 'insensitive' } },
+            include: { user: true },
+          });
+
+          // Or look up directly in User table (when using primary wallet)
+          const userRecord = walletRecord?.user || await tx.user.findFirst({
+            where: { walletAddress: { equals: payerWith0x, mode: 'insensitive' } },
+          });
+
+          // B. Determine which address to send to Gaian
+          // If user found -> use User.walletAddress (KYC wallet) to bypass Gaian KYC.
+          // Otherwise -> fallback to the payer wallet (payerWalletAddress).
+          const kycAddress = userRecord?.walletAddress || updatedOrder.payerWalletAddress;
+
+          // C. Call Gaian API
           const gaianResp = await this.gaian.placeOrderPrefund({
             qrString,
             amount: Number(updatedOrder.fiatAmount),
             fiatCurrency: updatedOrder.fiatCurrency,
             cryptoCurrency: updatedOrder.cryptoCurrency,
-            fromAddress: updatedOrder.payerWalletAddress,
-            transactionReference: updatedOrder.userPaymentTxDigest || undefined,
+            fromAddress: kycAddress, 
+            transactionReference: updatedOrder.userPaymentTxDigest || undefined, 
           });
 
           const gaianOrderId = gaianResp?.orderId;

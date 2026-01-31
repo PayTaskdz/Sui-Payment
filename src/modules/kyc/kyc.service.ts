@@ -76,6 +76,12 @@ export class KycService {
         },
       });
 
+      // 4. Sync kycStatus to all on-chain wallets of this user
+      await this.prisma.onchainWallet.updateMany({
+        where: { userId: user.id },
+        data: { kycStatus: updatedUser.kycStatus },
+      });
+
       return {
         userId: updatedUser.id,
         username: updatedUser.username,
@@ -122,13 +128,20 @@ export class KycService {
     }
 
     // Update KYC status
+    const newKycStatus = kycStatus || user.kycStatus;
     const updatedUser = await this.prisma.user.update({
       where: { id: user.id },
       data: {
-        kycStatus: kycStatus || user.kycStatus,
+        kycStatus: newKycStatus,
         firstName: firstName || user.firstName,
         lastName: lastName || user.lastName,
       },
+    });
+
+    // Sync kycStatus to all on-chain wallets of this user
+    await this.prisma.onchainWallet.updateMany({
+      where: { userId: user.id },
+      data: { kycStatus: updatedUser.kycStatus },
     });
 
     return {
