@@ -15,6 +15,9 @@ import { ZkLoginVerifyDto } from './dto/zklogin-verify.dto';
 import { randomBase64 } from './zklogin.util';
 import { GoogleOidcService } from './google-oidc.service';
 import { SuiRpcService } from '../sui/sui-rpc.service';
+import { KycService } from '../modules/kyc/kyc.service';
+
+const KYC_STATUSES_TO_REFRESH = new Set(['not_started', 'pending', 'rejected', 'not started']);
 
 function normalizeSuiAddress(address: string) {
   const a = address.trim().toLowerCase();
@@ -32,6 +35,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly googleOidc: GoogleOidcService,
     private readonly suiRpc: SuiRpcService,
+    private readonly kycService: KycService,
   ) {
     this.domain = this.config.get<string>('AUTH_DOMAIN') ?? 'paypath.app';
     this.challengeTtlSeconds = Number(this.config.get<string>('AUTH_CHALLENGE_TTL_SECONDS') ?? '300');
@@ -56,6 +60,26 @@ export class AuthService {
       expiresAt: expiresAt.toISOString(),
       domain: this.domain,
     };
+  }
+
+  private async refreshKycIfNeeded(walletAddress: string, kycStatus?: string | null) {
+    const status =
+      typeof kycStatus === 'string' && kycStatus.trim()
+        ? kycStatus.trim()
+        : (await this.prisma.user.findFirst({
+            where: { walletAddress },
+            select: { kycStatus: true },
+          }))?.kycStatus ?? null;
+
+    if (!status || !KYC_STATUSES_TO_REFRESH.has(status)) {
+      return;
+    }
+
+    try {
+      await this.kycService.getKycStatus(walletAddress);
+    } catch {
+      // Ignore KYC refresh failures so login still succeeds.
+    }
   }
 
   private buildExpectedMessage(args: {
@@ -175,6 +199,8 @@ export class AuthService {
       where: { id: nonceRow.id },
       data: { usedAt: new Date() },
     });
+
+    await this.refreshKycIfNeeded(address, user.kycStatus);
 
     const token = await this.jwt.signAsync({ sub: user.id, address });
 
