@@ -7,12 +7,14 @@ import { GoogleOidcService } from './google-oidc.service';
 import { SuiModule } from '../sui/sui.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
+import { KycModule } from '../modules/kyc/kyc.module';
 
 @Module({
   imports: [
     PrismaModule,
     ConfigModule,
     SuiModule,
+    KycModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
